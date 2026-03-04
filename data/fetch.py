@@ -52,7 +52,9 @@ def load_ohlc_csv(asset: str, timeframe: str) -> Optional[pd.DataFrame]:
             if c not in df.columns:
                 return None
         df = _ensure_utc_index(df)
-        return df.sort_index()
+        df = df.sort_index()
+        df = df[~df.index.duplicated(keep="first")]
+        return df
     except Exception:
         return None
 
@@ -81,7 +83,13 @@ def generate_sample_ohlc(
         {"Open": open_, "High": high, "Low": low, "Close": close},
         index=rng,
     )
-    df.index = df.index.tz_localize("UTC")
+    # Ensure UTC timezone safely (rng from date_range(..., tz=UTC) is already tz-aware)
+    if getattr(df.index, "tz", None) is None:
+        df.index = df.index.tz_localize("UTC")
+    else:
+        df.index = df.index.tz_convert("UTC")
+    df = df.sort_index()
+    df = df[~df.index.duplicated(keep="first")]
     return df
 
 
@@ -92,8 +100,13 @@ def fetch_data(asset: str, timeframe: str, bars: int = 1000) -> Optional[pd.Data
     """
     df = load_ohlc_csv(asset, timeframe)
     if df is not None:
-        return df.tail(bars) if len(df) > bars else df
-    return generate_sample_ohlc(asset, timeframe, bars=bars)
+        df = df.tail(bars) if len(df) > bars else df
+    else:
+        df = generate_sample_ohlc(asset, timeframe, bars=bars)
+    if df is not None and not df.empty:
+        df = df.sort_index()
+        df = df[~df.index.duplicated(keep="first")]
+    return df
 
 
 def fetch_all_timeframes(asset: str, bars_15m: int = 2000) -> Dict[str, pd.DataFrame]:
@@ -106,8 +119,10 @@ def fetch_all_timeframes(asset: str, bars_15m: int = 2000) -> Dict[str, pd.DataF
         return out
     out["15M"] = df_15m
     df_15m = df_15m.copy()
-    if df_15m.index.tz is None:
+    if getattr(df_15m.index, "tz", None) is None:
         df_15m.index = df_15m.index.tz_localize("UTC")
+    else:
+        df_15m.index = df_15m.index.tz_convert("UTC")
     out["1H"] = df_15m.resample("1h").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last"}).dropna()
     out["4H"] = df_15m.resample("4h").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last"}).dropna()
     return out
