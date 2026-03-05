@@ -24,26 +24,36 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+
+@st.cache_data(ttl=300)
+def _cached_fetch_and_run(asset: str, bars_15m: int):
+    """Fetch data and run narrative engine once per (asset, bars_15m). Reduces repeated heavy work."""
+    data_raw = fetch_all_timeframes(asset, bars_15m=bars_15m)
+    if not data_raw or "15M" not in data_raw:
+        return None, None, None, None
+    df_4h_raw = data_raw["4H"]
+    df_1h_raw = data_raw["1H"]
+    df_15m_raw = data_raw["15M"]
+    result = run_narrative_engine(df_4h_raw, df_1h_raw, df_15m_raw, asset)
+    return df_4h_raw, df_1h_raw, df_15m_raw, result
+
+
 st.title("CFD Story Dashboard")
 st.caption("Narrative Coach — where the story currently stands")
 
 # ----- Raw data only for engine -----
 asset = st.sidebar.selectbox("Asset", ASSETS, index=0)
-data_raw = fetch_all_timeframes(asset, bars_15m=2000)
-if not data_raw or "15M" not in data_raw:
+bars_15m = st.sidebar.slider("15M bars (fewer = faster load)", 300, 2000, 800, 100)
+df_4h_raw, df_1h_raw, df_15m_raw, result = _cached_fetch_and_run(asset, bars_15m)
+if df_4h_raw is None or df_15m_raw is None:
     st.warning("No data for selected asset. Add CSV under data/raw/{asset}_15M.csv or use sample.")
     st.stop()
-
-df_4h_raw = data_raw["4H"]
-df_1h_raw = data_raw["1H"]
-df_15m_raw = data_raw["15M"]
 
 # ----- Data debug info -----
 st.write("Data sizes:")
 st.write({"4H": len(df_4h_raw), "1H": len(df_1h_raw), "15M": len(df_15m_raw)})
 
-# ----- Engine: raw UTC only -----
-result = run_narrative_engine(df_4h_raw, df_1h_raw, df_15m_raw, asset)
+# ----- Engine result (from cache or fresh run) -----
 if result is None:
     st.error("Narrative engine returned None.")
     st.stop()

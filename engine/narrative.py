@@ -15,7 +15,12 @@ from .market_stage import (
     market_stage_series_1h_with_parent,
 )
 from .zone import zone_level_at
-from .structure import get_last_confirmed_swing_high, get_last_confirmed_swing_low
+from .structure import (
+    detect_swing_highs,
+    detect_swing_lows,
+    get_last_confirmed_swing_high,
+    get_last_confirmed_swing_low,
+)
 from .fib_logic import active_retracement_boundary
 
 MIN_RR = 1.0
@@ -48,6 +53,17 @@ def narrative_stage_at(
     return 1
 
 
+def _narrative_stage_from_aligned(stage_4h: int, stage_1h: int, zone_level: int) -> int:
+    """Narrative stage from precomputed 4H/1H stage and zone level (avoids recomputing)."""
+    if stage_4h == 0 and stage_1h == 0:
+        return 0
+    if zone_level >= 2:
+        return 2
+    if stage_4h != 0 and stage_1h != 0 and (stage_4h == stage_1h or stage_1h != 0):
+        return 3
+    return 1
+
+
 def compute_rr(
     entry: Optional[float],
     stop: Optional[float],
@@ -72,6 +88,8 @@ def _rr_at_bar(
     i: int,
     direction: int,
     boundary_price: float,
+    swing_highs: Optional[pd.Series] = None,
+    swing_lows: Optional[pd.Series] = None,
 ) -> Optional[float]:
     """
     R:R using real stop (structure invalid level = boundary) and target (liquidity level = swing).
@@ -82,12 +100,12 @@ def _rr_at_bar(
     entry = float(row["Close"])
     stop = float(boundary_price)
     if direction == 1:
-        target = get_last_confirmed_swing_high(df, i)
+        target = get_last_confirmed_swing_high(df, i, swing_highs=swing_highs)
         if target is None or entry >= target or entry <= stop:
             return None
         target = float(target)
     else:
-        target = get_last_confirmed_swing_low(df, i)
+        target = get_last_confirmed_swing_low(df, i, swing_lows=swing_lows)
         if target is None or entry <= target or entry >= stop:
             return None
         target = float(target)
@@ -104,6 +122,8 @@ def deployment_trigger_valid(
     boundary_price: Optional[float],
     boundary_type: str,
     direction: int,
+    swing_highs: Optional[pd.Series] = None,
+    swing_lows: Optional[pd.Series] = None,
 ) -> Tuple[bool, Optional[float]]:
     """
     Deployment requires: alignment with 4H narrative OR counter-trend with R:R >= 1:1.3;
@@ -112,7 +132,11 @@ def deployment_trigger_valid(
     """
     if boundary_price is None or i_15m >= len(df_15m):
         return (False, None)
-    rr = _rr_at_bar(df_15m, i_15m, direction, boundary_price)
+    rr = _rr_at_bar(
+        df_15m, i_15m, direction, boundary_price,
+        swing_highs=swing_highs,
+        swing_lows=swing_lows,
+    )
     if rr is None or rr < MIN_RR_REWARD:
         return (False, rr)
     aligned = (stage_4h == direction) or (stage_4h != 0 and stage_1h == direction)
@@ -141,15 +165,39 @@ def run_narrative_engine(
             "stage_15m": pd.Series(dtype=int),
             "zone_level": pd.Series(dtype=int),
             "boundary_type": [],
+            "boundary_price": [],
             "rr": [],
             "deployment_trigger": [],
             "narrative_stage": [],
+            "stage_4h_aligned": [],
+            "stage_1h_aligned": [],
             "opportunities": [],
         }
-    stage_4h_s = market_stage_series(df_4h)
-    stage_1h_s = market_stage_series_1h_with_parent(df_1h, stage_4h_s, df_1h.index)
-    stage_15m_s = market_stage_series(df_15m)
-    zone_levels = [zone_level_at(df_15m, i) for i in range(n_15)]
+
+    # Precompute swing series once per dataframe (avoids O(n²) repeated detection)
+    swing_highs_4h = detect_swing_highs(df_4h)
+    swing_lows_4h = detect_swing_lows(df_4h)
+    swing_highs_1h = detect_swing_highs(df_1h)
+    swing_lows_1h = detect_swing_lows(df_1h)
+    swing_highs_15 = detect_swing_highs(df_15m)
+    swing_lows_15 = detect_swing_lows(df_15m)
+
+    stage_4h_s = market_stage_series(
+        df_4h,
+        swing_highs=swing_highs_4h,
+        swing_lows=swing_lows_4h,
+    )
+    stage_1h_s = market_stage_series_1h_with_parent(
+        df_1h, stage_4h_s, df_1h.index,
+        swing_highs=swing_highs_1h,
+        swing_lows=swing_lows_1h,
+    )
+    stage_15m_s = market_stage_series(
+        df_15m,
+        swing_highs=swing_highs_15,
+        swing_lows=swing_lows_15,
+    )
+
     # Align 15m bar index to 4H/1H bar indices by timestamp
     idx_15 = df_15m.index
     i_4h_map = df_4h.index.get_indexer(idx_15, method="ffill")
@@ -162,6 +210,8 @@ def run_narrative_engine(
     narrative_stages: List[int] = []
     stage_4h_aligned: List[int] = []
     stage_1h_aligned: List[int] = []
+    zone_levels: List[int] = []
+
     for i in range(n_15):
         i_4h = int(i_4h_map[i]) if i_4h_map[i] >= 0 else 0
         i_1h = int(i_1h_map[i]) if i_1h_map[i] >= 0 else 0
@@ -171,20 +221,46 @@ def run_narrative_engine(
         stage_1h_aligned.append(st_1h)
         st_15 = int(stage_15m_s.iloc[i])
         direction = 1 if st_15 == 1 else (-1 if st_15 == -1 else 0)
-        boundary_price, btype = active_retracement_boundary(df_15m, i, direction) if direction != 0 else (None, "0.618")
+
+        z = zone_level_at(
+            df_15m, i,
+            swing_highs=swing_highs_15,
+            swing_lows=swing_lows_15,
+        )
+        zone_levels.append(z)
+
+        boundary_price, btype = (
+            active_retracement_boundary(
+                df_15m, i, direction,
+                swing_highs=swing_highs_15,
+                swing_lows=swing_lows_15,
+            )
+            if direction != 0
+            else (None, "0.618")
+        )
         boundary_types.append(btype)
         boundary_prices.append(boundary_price)
-        rr = _rr_at_bar(df_15m, i, direction, boundary_price) if boundary_price is not None and direction != 0 else None
+        rr = (
+            _rr_at_bar(
+                df_15m, i, direction, boundary_price,
+                swing_highs=swing_highs_15,
+                swing_lows=swing_lows_15,
+            )
+            if boundary_price is not None and direction != 0
+            else None
+        )
         rrs.append(rr)
         valid, _ = (
             deployment_trigger_valid(
                 df_4h, df_15m, i_4h, i, st_4h, st_1h, boundary_price, btype, direction,
+                swing_highs=swing_highs_15,
+                swing_lows=swing_lows_15,
             )
             if boundary_price is not None and direction != 0 and rr is not None and rr >= MIN_RR_REWARD
             else (False, None)
         )
         deployment_triggers.append(valid)
-        narrative_stages.append(narrative_stage_at(df_4h, df_1h, df_15m, i_4h, i_1h, i))
+        narrative_stages.append(_narrative_stage_from_aligned(st_4h, st_1h, z))
     opportunities: List[Dict[str, Any]] = []
     return {
         "asset": asset,

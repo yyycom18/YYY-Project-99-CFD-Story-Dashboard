@@ -121,6 +121,8 @@ def is_level2_zone_up(
     wick_pct_max: float = ZONE_WICK_PCT_MAX,
     avg_n: int = ZONE_AVG_N,
     lookahead: int = LOOKAHEAD_BARS,
+    swing_highs: Optional[pd.Series] = None,
+    swing_lows: Optional[pd.Series] = None,
 ) -> bool:
     """
     Level 2 – Structural Break Zone (up):
@@ -130,7 +132,7 @@ def is_level2_zone_up(
     """
     if not is_level1_zone(df, i, body_mult, wick_pct_max, avg_n):
         return False
-    swing_high = get_last_confirmed_swing_high(df, i)
+    swing_high = get_last_confirmed_swing_high(df, i, swing_highs=swing_highs)
     if swing_high is None:
         return False
     if df["Close"].iloc[i] <= swing_high:
@@ -150,6 +152,8 @@ def is_level2_zone_down(
     wick_pct_max: float = ZONE_WICK_PCT_MAX,
     avg_n: int = ZONE_AVG_N,
     lookahead: int = LOOKAHEAD_BARS,
+    swing_highs: Optional[pd.Series] = None,
+    swing_lows: Optional[pd.Series] = None,
 ) -> bool:
     """
     Level 2 – Structural Break Zone (down):
@@ -157,7 +161,7 @@ def is_level2_zone_down(
     """
     if not is_level1_zone(df, i, body_mult, wick_pct_max, avg_n):
         return False
-    swing_low = get_last_confirmed_swing_low(df, i)
+    swing_low = get_last_confirmed_swing_low(df, i, swing_lows=swing_lows)
     if swing_low is None:
         return False
     if df["Close"].iloc[i] >= swing_low:
@@ -170,22 +174,41 @@ def is_level2_zone_down(
     return True
 
 
-def zone_level_at(df: pd.DataFrame, i: int) -> int:
+def zone_level_at(
+    df: pd.DataFrame,
+    i: int,
+    swing_highs: Optional[pd.Series] = None,
+    swing_lows: Optional[pd.Series] = None,
+) -> int:
     """
     Returns 0 (no zone), 1 (Level 1 only), or 2 (Level 2).
+    Pass swing_highs/swing_lows to avoid recomputing.
     """
-    if is_level2_zone_up(df, i) or is_level2_zone_down(df, i):
+    if is_level2_zone_up(
+        df, i,
+        swing_highs=swing_highs,
+        swing_lows=swing_lows,
+    ) or is_level2_zone_down(
+        df, i,
+        swing_highs=swing_highs,
+        swing_lows=swing_lows,
+    ):
         return 2
     if is_level1_zone(df, i):
         return 1
     return 0
 
 
-def zone_direction_at(df: pd.DataFrame, i: int) -> Optional[int]:
+def zone_direction_at(
+    df: pd.DataFrame,
+    i: int,
+    swing_highs: Optional[pd.Series] = None,
+    swing_lows: Optional[pd.Series] = None,
+) -> Optional[int]:
     """+1 upside zone, -1 downside zone, None if no zone or Level 1 only."""
-    if is_level2_zone_up(df, i):
+    if is_level2_zone_up(df, i, swing_highs=swing_highs, swing_lows=swing_lows):
         return 1
-    if is_level2_zone_down(df, i):
+    if is_level2_zone_down(df, i, swing_highs=swing_highs, swing_lows=swing_lows):
         return -1
     if is_level1_zone(df, i):
         row = df.iloc[i]

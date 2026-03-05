@@ -75,20 +75,30 @@ def detect_swing_lows(df: pd.DataFrame, left: int = FRACTAL_LEFT, right: int = F
     return pd.Series(out, index=df.index)
 
 
-def get_last_confirmed_swing_high(df: pd.DataFrame, up_to_idx: int) -> Optional[float]:
-    """Last confirmed swing high strictly before bar index up_to_idx."""
-    sh = detect_swing_highs(df)
+def get_last_confirmed_swing_high(
+    df: pd.DataFrame,
+    up_to_idx: int,
+    swing_highs: Optional[pd.Series] = None,
+) -> Optional[float]:
+    """Last confirmed swing high strictly before bar index up_to_idx. Pass swing_highs to avoid recomputing."""
+    if swing_highs is None:
+        swing_highs = detect_swing_highs(df)
     for i in range(up_to_idx - 1, -1, -1):
-        if i < len(sh) and sh.iloc[i]:
+        if i < len(swing_highs) and swing_highs.iloc[i]:
             return float(df["High"].iloc[i])
     return None
 
 
-def get_last_confirmed_swing_low(df: pd.DataFrame, up_to_idx: int) -> Optional[float]:
-    """Last confirmed swing low strictly before bar index up_to_idx."""
-    sl = detect_swing_lows(df)
+def get_last_confirmed_swing_low(
+    df: pd.DataFrame,
+    up_to_idx: int,
+    swing_lows: Optional[pd.Series] = None,
+) -> Optional[float]:
+    """Last confirmed swing low strictly before bar index up_to_idx. Pass swing_lows to avoid recomputing."""
+    if swing_lows is None:
+        swing_lows = detect_swing_lows(df)
     for i in range(up_to_idx - 1, -1, -1):
-        if i < len(sl) and sl.iloc[i]:
+        if i < len(swing_lows) and swing_lows.iloc[i]:
             return float(df["Low"].iloc[i])
     return None
 
@@ -98,6 +108,7 @@ def is_structure_break_up(
     i: int,
     body_mult: float = STRUCTURE_BODY_MULTIPLIER,
     avg_n: int = BODY_AVG_N,
+    swing_highs: Optional[pd.Series] = None,
 ) -> bool:
     """
     True if bar i is a valid upside structure break:
@@ -107,7 +118,7 @@ def is_structure_break_up(
     """
     if i < 1:
         return False
-    swing_high = get_last_confirmed_swing_high(df, i)
+    swing_high = get_last_confirmed_swing_high(df, i, swing_highs=swing_highs)
     if swing_high is None:
         return False
     row = df.iloc[i]
@@ -129,6 +140,7 @@ def is_structure_break_down(
     i: int,
     body_mult: float = STRUCTURE_BODY_MULTIPLIER,
     avg_n: int = BODY_AVG_N,
+    swing_lows: Optional[pd.Series] = None,
 ) -> bool:
     """
     True if bar i is a valid downside structure break:
@@ -137,7 +149,7 @@ def is_structure_break_down(
     """
     if i < 1:
         return False
-    swing_low = get_last_confirmed_swing_low(df, i)
+    swing_low = get_last_confirmed_swing_low(df, i, swing_lows=swing_lows)
     if swing_low is None:
         return False
     row = df.iloc[i]

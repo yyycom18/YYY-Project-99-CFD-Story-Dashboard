@@ -11,6 +11,8 @@ import pandas as pd
 import numpy as np
 
 from .structure import (
+    detect_swing_highs,
+    detect_swing_lows,
     is_structure_break_up,
     is_structure_break_down,
     get_last_confirmed_swing_high,
@@ -21,18 +23,28 @@ from .structure import (
 RETRACE_THRESHOLD_1H = 0.68
 
 
-def _structure_break_at(df: pd.DataFrame, i: int) -> Optional[str]:
-    """Return "UP", "DOWN", or None at bar i."""
+def _structure_break_at(
+    df: pd.DataFrame,
+    i: int,
+    swing_highs: Optional[pd.Series] = None,
+    swing_lows: Optional[pd.Series] = None,
+) -> Optional[str]:
+    """Return "UP", "DOWN", or None at bar i. Pass swing_highs/swing_lows to avoid recomputing."""
     if i >= len(df) or i < 0:
         return None
-    if is_structure_break_up(df, i):
+    if is_structure_break_up(df, i, swing_highs=swing_highs):
         return "UP"
-    if is_structure_break_down(df, i):
+    if is_structure_break_down(df, i, swing_lows=swing_lows):
         return "DOWN"
     return None
 
 
-def _retracement_ratio_at(df: pd.DataFrame, i: int) -> Optional[float]:
+def _retracement_ratio_at(
+    df: pd.DataFrame,
+    i: int,
+    swing_highs: Optional[pd.Series] = None,
+    swing_lows: Optional[pd.Series] = None,
+) -> Optional[float]:
     """
     Retracement depth from last swing high (bull) or low (bear).
     Returns ratio in [0, 1]: 0 = no retracement, 1 = full retracement.
@@ -40,8 +52,8 @@ def _retracement_ratio_at(df: pd.DataFrame, i: int) -> Optional[float]:
     """
     if i >= len(df) or i < 0:
         return None
-    sh = get_last_confirmed_swing_high(df, i)
-    sl = get_last_confirmed_swing_low(df, i)
+    sh = get_last_confirmed_swing_high(df, i, swing_highs=swing_highs)
+    sl = get_last_confirmed_swing_low(df, i, swing_lows=swing_lows)
     if sh is None or sl is None or sh <= sl:
         return None
     row = df.iloc[i]
@@ -91,11 +103,16 @@ def compute_market_stage(
     return parent_stage if parent_stage is not None else 0
 
 
-def market_stage_at_4h(df: pd.DataFrame, i: int) -> int:
+def market_stage_at_4h(
+    df: pd.DataFrame,
+    i: int,
+    swing_highs: Optional[pd.Series] = None,
+    swing_lows: Optional[pd.Series] = None,
+) -> int:
     """4H stage (season): structure break only."""
     if i >= len(df) or i < 0:
         return 0
-    sb = _structure_break_at(df, i)
+    sb = _structure_break_at(df, i, swing_highs=swing_highs, swing_lows=swing_lows)
     return compute_market_stage(sb, parent_stage=None)
 
 
@@ -103,31 +120,48 @@ def market_stage_at_1h(
     df: pd.DataFrame,
     i: int,
     parent_stage: int,
+    swing_highs: Optional[pd.Series] = None,
+    swing_lows: Optional[pd.Series] = None,
 ) -> int:
     """1H stage (wind): flip only if retracement > 0.68, else inherit parent."""
     if i >= len(df) or i < 0:
         return parent_stage
-    sb = _structure_break_at(df, i)
-    rr = _retracement_ratio_at(df, i)
+    sb = _structure_break_at(df, i, swing_highs=swing_highs, swing_lows=swing_lows)
+    rr = _retracement_ratio_at(df, i, swing_highs=swing_highs, swing_lows=swing_lows)
     return compute_market_stage(sb, retracement_ratio=rr, parent_stage=parent_stage)
 
 
-def market_stage_at(df: pd.DataFrame, i: int) -> int:
+def market_stage_at(
+    df: pd.DataFrame,
+    i: int,
+    swing_highs: Optional[pd.Series] = None,
+    swing_lows: Optional[pd.Series] = None,
+) -> int:
     """
     Returns +1 (Upside), 0 (Neutral), or -1 (Downside).
     Used for 15M or when no parent (standalone). Keeps original structure+sequence logic.
     """
     if i >= len(df) or i < 0:
         return 0
-    sb = _structure_break_at(df, i)
+    sb = _structure_break_at(df, i, swing_highs=swing_highs, swing_lows=swing_lows)
     return compute_market_stage(sb, parent_stage=None)
 
 
-def market_stage_series(df: pd.DataFrame) -> pd.Series:
-    """4H-style stage series (structure break only). Engine uses raw index."""
+def market_stage_series(
+    df: pd.DataFrame,
+    swing_highs: Optional[pd.Series] = None,
+    swing_lows: Optional[pd.Series] = None,
+) -> pd.Series:
+    """4H-style stage series (structure break only). Precomputes swing once if not provided."""
+    if swing_highs is None:
+        swing_highs = detect_swing_highs(df)
+    if swing_lows is None:
+        swing_lows = detect_swing_lows(df)
     stages = []
     for i in range(len(df)):
-        stages.append(market_stage_at_4h(df, i))
+        stages.append(
+            market_stage_at_4h(df, i, swing_highs=swing_highs, swing_lows=swing_lows)
+        )
     return pd.Series(stages, index=df.index)
 
 
@@ -135,11 +169,23 @@ def market_stage_series_1h_with_parent(
     df_1h: pd.DataFrame,
     parent_stage_series: pd.Series,
     index_1h: pd.DatetimeIndex,
+    swing_highs: Optional[pd.Series] = None,
+    swing_lows: Optional[pd.Series] = None,
 ) -> pd.Series:
-    """1H stage series with parent (4H) alignment by timestamp."""
+    """1H stage series with parent (4H) alignment by timestamp. Precomputes swing once if not provided."""
+    if swing_highs is None:
+        swing_highs = detect_swing_highs(df_1h)
+    if swing_lows is None:
+        swing_lows = detect_swing_lows(df_1h)
     parent_aligned = parent_stage_series.reindex(index_1h, method="ffill")
     stages = []
     for i in range(len(df_1h)):
         p = int(parent_aligned.iloc[i]) if i < len(parent_aligned) and pd.notna(parent_aligned.iloc[i]) else 0
-        stages.append(market_stage_at_1h(df_1h, i, p))
+        stages.append(
+            market_stage_at_1h(
+                df_1h, i, p,
+                swing_highs=swing_highs,
+                swing_lows=swing_lows,
+            )
+        )
     return pd.Series(stages, index=df_1h.index)
