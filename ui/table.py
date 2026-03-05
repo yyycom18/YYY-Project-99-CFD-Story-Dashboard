@@ -41,6 +41,7 @@ def build_opportunity_rows(
     stage_4h_aligned = result.get("stage_4h_aligned", [])
     stage_1h_aligned = result.get("stage_1h_aligned", [])
     zone_level = result.get("zone_level")
+    # Use index as-is (DatetimeIndex has no .is_all_dates)
     idx = df_15m_raw.index
 
     rows = []
