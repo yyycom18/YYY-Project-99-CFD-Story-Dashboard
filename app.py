@@ -59,6 +59,56 @@ if result is None:
     st.stop()
 st.write("Engine result keys:", list(result.keys()))
 
+# ----- Narrative Summary Panel (current state = last bar) -----
+st.subheader("Current Narrative State")
+_STAGE_LABELS = {-1: "Downside", 0: "Neutral", 1: "Upside"}
+_NARRATIVE_LABELS = {0: "Env", 1: "Trend/Shift", 2: "Retracement", 3: "Deployment", 4: "Liquidity", 5: "Resolution"}
+
+
+def _last_scalar(x, default="-"):
+    """Get last value from series or list for display."""
+    if x is None:
+        return default
+    if hasattr(x, "iloc"):
+        return x.iloc[-1] if len(x) else default
+    if isinstance(x, list):
+        return x[-1] if len(x) else default
+    return x
+
+
+s4h = result.get("stage_4h")
+s1h = result.get("stage_1h")
+s15 = result.get("stage_15m")
+ns = result.get("narrative_stage")
+zl = result.get("zone_level")
+bt = result.get("boundary_type")
+rr_list = result.get("rr")
+dt_list = result.get("deployment_trigger")
+
+col1, col2, col3 = st.columns(3)
+with col1:
+    v4 = _last_scalar(s4h)
+    st.metric("4H Season", _STAGE_LABELS.get(int(v4), str(v4)) if v4 != "-" else v4)
+    v1 = _last_scalar(s1h)
+    st.metric("1H Wind", _STAGE_LABELS.get(int(v1), str(v1)) if v1 != "-" else v1)
+    v15 = _last_scalar(s15)
+    st.metric("15M Structure", _STAGE_LABELS.get(int(v15), str(v15)) if v15 != "-" else v15)
+with col2:
+    vn = _last_scalar(ns)
+    st.metric("Narrative Stage", _NARRATIVE_LABELS.get(int(vn), str(vn)) if vn != "-" else vn)
+    vzl = _last_scalar(zl)
+    st.metric("Zone Level", str(int(vzl)) if isinstance(vzl, (int, float)) else vzl)
+    vbt = _last_scalar(bt)
+    st.metric("Boundary Type", str(vbt) if vbt != "-" else vbt)
+with col3:
+    vrr = _last_scalar(rr_list)
+    rr_display = f"{float(vrr):.2f}" if isinstance(vrr, (int, float)) else (vrr if vrr != "-" else "-")
+    st.metric("R:R", rr_display)
+    vdt = _last_scalar(dt_list)
+    st.metric("Deployment Trigger", "Yes" if vdt is True else ("No" if vdt is False else str(vdt)))
+
+st.markdown("---")
+
 # ----- Visualization: HKT copy only -----
 df_4h_viz = convert_to_HKT(df_4h_raw)
 df_1h_viz = convert_to_HKT(df_1h_raw)
