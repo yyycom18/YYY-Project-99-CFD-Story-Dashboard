@@ -38,8 +38,16 @@ df_4h_raw = data_raw["4H"]
 df_1h_raw = data_raw["1H"]
 df_15m_raw = data_raw["15M"]
 
+# ----- Data debug info -----
+st.write("Data sizes:")
+st.write({"4H": len(df_4h_raw), "1H": len(df_1h_raw), "15M": len(df_15m_raw)})
+
 # ----- Engine: raw UTC only -----
 result = run_narrative_engine(df_4h_raw, df_1h_raw, df_15m_raw, asset)
+if result is None:
+    st.error("Narrative engine returned None.")
+    st.stop()
+st.write("Engine result keys:", list(result.keys()))
 
 # ----- Visualization: HKT copy only -----
 df_4h_viz = convert_to_HKT(df_4h_raw)
@@ -47,22 +55,31 @@ df_1h_viz = convert_to_HKT(df_1h_raw)
 df_15m_viz = convert_to_HKT(df_15m_raw)
 
 # Align result's 15m outputs to viz index (same length; viz is just tz-converted)
-# Result was computed on raw; indices match by position
 n_15 = len(df_15m_viz)
-boundary_price = result.get("boundary_price", [])
+boundary_price = result.get("boundary_price") or []
+if not isinstance(boundary_price, list):
+    boundary_price = []
 if len(boundary_price) != n_15:
     boundary_price = (boundary_price + [None] * n_15)[:n_15]
 
 # ----- Weekly Opportunity Table (last 4 weeks, HKT display) -----
 st.subheader("Weekly Opportunity Log – Last 4 Weeks")
-rows = build_opportunity_rows(result, df_15m_raw, lookback_weeks=4)
-render_opportunity_table(rows)
+try:
+    rows = build_opportunity_rows(result, df_15m_raw, lookback_weeks=4)
+    render_opportunity_table(rows)
+except Exception as e:
+    st.error("Opportunity table failed to render.")
+    st.exception(e)
 st.markdown("---")
 
 # ----- Three-panel chart (4H stage background, 1H, 15M) -----
 st.subheader(f"{asset} – 4H / 1H / 15M")
-fig = build_three_panel(df_4h_viz, df_1h_viz, df_15m_viz, result)
-st.plotly_chart(fig, use_container_width=True)
+try:
+    fig = build_three_panel(df_4h_viz, df_1h_viz, df_15m_viz, result)
+    st.plotly_chart(fig, use_container_width=True)
+except Exception as e:
+    st.error("Chart rendering failed.")
+    st.exception(e)
 
 # ----- Replay Mode (Phase 2 placeholder) -----
 st.sidebar.markdown("---")
