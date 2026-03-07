@@ -294,24 +294,19 @@ def build_three_panel(
     result: Dict[str, Any],
 ) -> go.Figure:
     """
-    Build exactly 3 panels: Row 1 = 4H Season, Row 2 = 1H Wind, Row 3 = 15M Deployment.
-    All df_*_viz must be HKT (UTC+8). result from run_narrative_engine.
-    
-    Features:
-    - Stage background coloring (green=Upside, red=Downside)
-    - Y-axis on right (TradingView style)
-    - Explicit y-domains and 0.14 vertical spacing to prevent overlap
-    - Weekend gaps removed
+    Build 3-panel figure matching Alert Dashboard structure (CFD-Alert-Dashboard layout.py).
+    Row 1 = 4H, Row 2 = 1H, Row 3 = 15M. shared_xaxes=False, vertical_spacing=0.08, row_heights [0.35,0.35,0.30].
+    All df_*_viz must be HKT (UTC+8). Stage backgrounds: green=Upside, red=Downside.
     """
     fig = make_subplots(
         rows=3,
         cols=1,
-        shared_xaxes=True,
+        shared_xaxes=False,
         vertical_spacing=0.08,
-        subplot_titles=("4H Season", "1H Wind", "15M Deployment"),
-        row_heights=[0.35, 0.30, 0.35],
+        subplot_titles=("4H Trend", "1H Structure", "15M Deployment"),
+        row_heights=[0.35, 0.35, 0.30],
     )
-    # 4H
+    # 4H — candlestick (Alert-style colors) + stage shapes
     fig.add_trace(
         go.Candlestick(
             x=df_4h_viz.index,
@@ -320,6 +315,8 @@ def build_three_panel(
             low=df_4h_viz["Low"],
             close=df_4h_viz["Close"],
             name="4H",
+            increasing_line_color="#26a69a",
+            decreasing_line_color="#ef5350",
         ),
         row=1,
         col=1,
@@ -327,7 +324,7 @@ def build_three_panel(
     stage_4h = result.get("stage_4h")
     for sh in _stage_shapes_for_subplot(df_4h_viz, stage_4h, "y"):
         fig.add_shape(sh, row=1, col=1)
-    # 1H
+    # 1H — candlestick (Alert-style colors) + stage shapes
     fig.add_trace(
         go.Candlestick(
             x=df_1h_viz.index,
@@ -336,6 +333,8 @@ def build_three_panel(
             low=df_1h_viz["Low"],
             close=df_1h_viz["Close"],
             name="1H",
+            increasing_line_color="#26a69a",
+            decreasing_line_color="#ef5350",
         ),
         row=2,
         col=1,
@@ -343,7 +342,7 @@ def build_three_panel(
     stage_1h = result.get("stage_1h")
     for sh in _stage_shapes_for_subplot(df_1h_viz, stage_1h, "y2"):
         fig.add_shape(sh, row=2, col=1)
-    # 15M
+    # 15M — candlestick (Alert-style colors) + stage shapes
     fig.add_trace(
         go.Candlestick(
             x=df_15m_viz.index,
@@ -352,6 +351,8 @@ def build_three_panel(
             low=df_15m_viz["Low"],
             close=df_15m_viz["Close"],
             name="15M",
+            increasing_line_color="#26a69a",
+            decreasing_line_color="#ef5350",
         ),
         row=3,
         col=1,
@@ -359,26 +360,29 @@ def build_three_panel(
     stage_15m = result.get("stage_15m")
     for sh in _stage_shapes_for_subplot(df_15m_viz, stage_15m, "y3"):
         fig.add_shape(sh, row=3, col=1)
-    # Disable range sliders so only three clean charts show (no extra slider charts)
+    # Layout: match Alert Dashboard (no manual y-domains; Plotly uses row_heights)
     fig.update_layout(
         height=1100,
         template="plotly_white",
         showlegend=False,
-        hovermode="x unified",
-        margin=dict(l=60, r=80, t=90, b=60),
         xaxis_rangeslider_visible=False,
         xaxis2_rangeslider_visible=False,
         xaxis3_rangeslider_visible=False,
-        yaxis=dict(domain=[0.68, 1.0]),
-        yaxis2=dict(domain=[0.34, 0.62]),
-        yaxis3=dict(domain=[0.0, 0.30]),
     )
-    # Remove weekend gaps and disable range sliders on all three subplots
-    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], rangeslider_visible=False, row=1, col=1)
-    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], rangeslider_visible=False, row=2, col=1)
-    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], rangeslider_visible=False, row=3, col=1)
-    # Y-axis on the right for all subplots (TradingView-style)
+    # Patch 1 (Alert): Remove weekend gaps per subplot
+    for r in [1, 2, 3]:
+        fig.update_xaxes(
+            rangebreaks=[dict(bounds=["sat", "mon"])],
+            rangeslider_visible=False,
+            row=r,
+            col=1,
+        )
+    # Y-axis on the right (TradingView-style)
     fig.update_yaxes(side="right", row=1, col=1)
     fig.update_yaxes(side="right", row=2, col=1)
     fig.update_yaxes(side="right", row=3, col=1)
+    # Patch 6 (Alert): Grid on all subplots for readability
+    for r in [1, 2, 3]:
+        fig.update_xaxes(showgrid=True, gridcolor="rgba(200,200,200,0.15)", row=r, col=1)
+        fig.update_yaxes(showgrid=True, gridcolor="rgba(200,200,200,0.15)", row=r, col=1)
     return fig
