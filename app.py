@@ -52,7 +52,8 @@ def window_to_bars(weeks: int):
 
 # ----- Raw data only for engine -----
 asset = st.sidebar.selectbox("Asset", ASSETS, index=0)
-bars_15m = st.sidebar.slider("15M bars (fewer = faster load)", 300, 2000, 800, 100)
+# Load enough bars so Time Window (1/2/4 weeks) shows different ranges: 4 weeks = 2688 bars
+bars_15m = st.sidebar.slider("15M bars (fewer = faster load)", 700, 3500, 2800, 100)
 
 # Time Window: chart display range only (does not change engine history)
 time_window_label = st.sidebar.selectbox(
@@ -214,9 +215,13 @@ if auto_log and st.session_state.narrative_log:
 st.subheader(f"{asset} – 4H Season / 1H Wind / 15M Deployment")
 # Apply Time Window via tail(last_n_bars); chart display only, engine unchanged
 last_n_15m, last_n_1h, last_n_4h = window_to_bars(time_window_weeks)
-df_4h_display = df_4h_viz.tail(last_n_4h) if len(df_4h_viz) > last_n_4h else df_4h_viz
-df_1h_display = df_1h_viz.tail(last_n_1h) if len(df_1h_viz) > last_n_1h else df_1h_viz
-df_15m_display = df_15m_viz.tail(last_n_15m) if len(df_15m_viz) > last_n_15m else df_15m_viz
+# Cap to available data so 1w / 2w / 4w show different ranges when bars_15m >= 2688
+n_15 = min(last_n_15m, len(df_15m_viz))
+n_1h = min(last_n_1h, len(df_1h_viz))
+n_4h = min(last_n_4h, len(df_4h_viz))
+df_4h_display = df_4h_viz.tail(n_4h)
+df_1h_display = df_1h_viz.tail(n_1h)
+df_15m_display = df_15m_viz.tail(n_15)
 try:
     fig = build_three_panel(df_4h_display, df_1h_display, df_15m_display, result)
     st.plotly_chart(fig, use_container_width=True)
