@@ -83,7 +83,14 @@ def generate_sample_ohlc(
     Generate sample OHLC for development when no CSV exists.
     Uses realistic market ranges per asset (no normalization).
     Index is UTC. Columns: Open, High, Low, Close.
-    Random walk constrained to stay near base price.
+    
+    OHLC logic:
+    - Close follows a mean-reverting random walk
+    - Open = previous close + small gap
+    - High = max(Open, Close) + random intrabar movement
+    - Low = min(Open, Close) - random intrabar movement
+    
+    This ensures High >= max(Open,Close) and Low <= min(Open,Close), like real markets.
     """
     if freq is None:
         freq = {"15M": "15min", "1H": "1h", "4H": "4h"}.get(timeframe, "1h")
@@ -91,13 +98,31 @@ def generate_sample_ohlc(
     base, vol = _ASSET_BASE_PRICE.get(asset, (100.0, 1.0))
     rng = pd.date_range(end=pd.Timestamp.now("UTC"), periods=bars, freq=freq)
     np.random.seed(hash(asset) % 2**32)
-    # Random walk bounded around base (mean-reverting to avoid drift away from realistic range)
+    
+    # Generate realistic close prices (mean-reverting random walk)
     steps = np.random.randn(bars) * (vol * 0.08)
     close = base + np.cumsum(steps - np.mean(steps) * 0.1)  # Mild mean reversion
-    high = close + np.abs(np.random.randn(bars)) * (vol * 0.25)
-    low = np.maximum(close - np.abs(np.random.randn(bars)) * (vol * 0.25), base * 0.95)  # Floor at 95% of base
+    
+    # Generate open prices (previous close + small gap)
     open_ = np.roll(close, 1)
-    open_[0] = close[0]
+    open_[0] = close[0]  # First open = first close
+    
+    # Generate realistic high/low (intrabar movement around open/close)
+    # High always >= max(Open, Close)
+    # Low always <= min(Open, Close)
+    intrabar_range = np.abs(np.random.randn(bars)) * (vol * 0.35)  # Intrabar wick size
+    intrabar_high = np.abs(np.random.randn(bars)) * (vol * 0.4)     # How much high extends
+    intrabar_low = np.abs(np.random.randn(bars)) * (vol * 0.4)      # How much low extends
+    
+    oc_high = np.maximum(open_, close)  # Highest of Open/Close
+    oc_low = np.minimum(open_, close)   # Lowest of Open/Close
+    
+    high = oc_high + intrabar_high
+    low = np.maximum(oc_low - intrabar_low, base * 0.90)  # Floor at 90% of base
+    
+    # Ensure High >= Low and proper OHLC relationships
+    high = np.maximum(high, low + vol * 0.1)  # High must be at least vol*0.1 above low
+    
     df = pd.DataFrame(
         {"Open": open_, "High": high, "Low": low, "Close": close},
         index=rng,
