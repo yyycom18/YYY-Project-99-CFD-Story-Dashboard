@@ -1,7 +1,7 @@
 """
 CFD Story Dashboard — Narrative Story Monitor.
 Shows where the market story stands across 4H Season, 1H Wind, 15M Deployment.
-Raw data → engine only. All visualization uses HKT (UTC+8) via convert_to_HKT().
+Real market data via yfinance. Raw data → engine only. All visualization uses HKT (UTC+8) via convert_to_HKT().
 """
 import sys
 from pathlib import Path
@@ -12,9 +12,9 @@ sys.path.insert(0, str(ROOT))
 import streamlit as st
 import pandas as pd
 
-from data.fetch import ASSETS, fetch_all_timeframes
+from data.market_data import fetch_all_timeframes, SYMBOL_MAP
 from engine.narrative import run_narrative_engine
-from ui.charts import build_three_panel
+from visualization.layout import build_three_panel_figure
 from ui.table import build_opportunity_rows, render_opportunity_table
 from utils.timezone import convert_to_HKT, timestamp_to_HKT_display
 
@@ -27,9 +27,9 @@ st.set_page_config(
 
 
 @st.cache_data(ttl=300)
-def _cached_fetch_and_run(asset: str, bars_15m: int):
-    """Fetch data and run narrative engine once per (asset, bars_15m). Reduces repeated heavy work."""
-    data_raw = fetch_all_timeframes(asset, bars_15m=bars_15m)
+def _cached_fetch_and_run(asset: str, lookback_days: int):
+    """Fetch real market data and run narrative engine. Cached for 5 min."""
+    data_raw = fetch_all_timeframes(asset, lookback_days=lookback_days)
     if not data_raw or "15M" not in data_raw:
         return None, None, None, None
     df_4h_raw = data_raw["4H"]
@@ -40,53 +40,32 @@ def _cached_fetch_and_run(asset: str, bars_15m: int):
 
 
 st.title("CFD Story Dashboard")
-st.caption("Narrative Story Monitor — where the market story currently stands (4H Season → 1H Wind → 15M Deployment)")
+st.caption("Narrative Story Monitor — Real market data via yfinance. 4H Season → 1H Wind → 15M Deployment")
 
-# Time window: bars to show per timeframe (chart display only; engine uses full history)
-def window_to_bars(weeks: int):
-    """Return (bars_15m, bars_1h, bars_4h) for chart display range. 15M: 672 bars/week."""
-    bars_15m = weeks * 7 * 24 * 4   # 672 per week
-    bars_1h = weeks * 7 * 24        # 168 per week
-    bars_4h = weeks * 7 * 6         # 42 per week
-    return bars_15m, bars_1h, bars_4h
+# Sidebar configuration
+asset = st.sidebar.selectbox("Asset", list(SYMBOL_MAP.keys()), index=0)
 
-# ----- Raw data only for engine -----
-asset = st.sidebar.selectbox("Asset", ASSETS, index=0)
-# Optimized default: 1500 bars (~15 days) = fast load + sufficient 2-week history
-# 1500 bars × 15 min = 22,500 min = 15.6 days. Display 2 weeks = 1344 bars. Good buffer for structural analysis.
-bars_15m = st.sidebar.slider("15M bars (fewer = faster load)", 500, 3000, 1500, 100)
+# Lookback days: chart display and engine history
+lookback_days = st.sidebar.slider("Lookback Days", 5, 30, 15, 1,
+    help="Fetch last N days of 15M data for engine and display")
 
-# Time Window: chart display range only (does not change engine history)
-time_window_label = st.sidebar.selectbox(
-    "Time Window",
-    ["1 week", "2 weeks", "4 weeks"],
-    index=2,
-    help="Chart display range only. Engine uses full history.",
-)
-time_window_weeks = {"1 week": 1, "2 weeks": 2, "4 weeks": 4}.get(time_window_label, 4)
+with st.spinner("Loading real market data and running narrative engine… (~10–20s first time, instant on cache)"):
+    df_4h_raw, df_1h_raw, df_15m_raw, result = _cached_fetch_and_run(asset, lookback_days)
 
-# Auto Log: log narrative changes when enabled
-auto_log = st.sidebar.checkbox("Auto Log", value=False, help="Log stage and deployment trigger changes above charts.")
-if "narrative_log" not in st.session_state:
-    st.session_state.narrative_log = []
-if "narrative_prev_state" not in st.session_state:
-    st.session_state.narrative_prev_state = {}
-
-with st.spinner("Loading data and running narrative engine… (~5–10s on first run, instant on cache):"):
-    df_4h_raw, df_1h_raw, df_15m_raw, result = _cached_fetch_and_run(asset, bars_15m)
 if df_4h_raw is None or df_15m_raw is None:
-    st.warning("No data for selected asset. Add CSV under data/raw/{asset}_15M.csv or use sample.")
+    st.warning(f"No data available for {asset}. Try a different asset or reduce lookback days.")
     st.stop()
 
-# ----- Engine result (from cache or fresh run) -----
+# ----- Engine result -----
 if result is None:
     st.error("Narrative engine returned None.")
     st.stop()
+
 with st.expander("Data & engine info", expanded=False):
-    st.write("Data sizes:", {"4H": len(df_4h_raw), "1H": len(df_1h_raw), "15M": len(df_15m_raw)})
+    st.write("Data sizes (bars):", {"4H": len(df_4h_raw), "1H": len(df_1h_raw), "15M": len(df_15m_raw)})
     st.write("Engine result keys:", list(result.keys()))
 
-# ----- Narrative Summary Panel: story position (primary + secondary) -----
+# ----- Narrative Summary Panel -----
 _STAGE_LABELS = {-1: "Downside", 0: "Neutral", 1: "Upside"}
 _NARRATIVE_LABELS = {0: "Env", 1: "Trend/Shift", 2: "Retracement", 3: "Deployment", 4: "Liquidity", 5: "Resolution"}
 
@@ -120,6 +99,7 @@ vdt = _last_scalar(dt_list)
 
 st.subheader("Current Narrative State")
 st.caption("Story position: 4H Season → 1H Wind → Narrative Stage (Primary) | Zone & Deployment Details (Secondary)")
+
 # Primary: 4H Season, 1H Wind, Narrative Stage
 primary_cols = st.columns(3)
 with primary_cols[0]:
@@ -131,6 +111,7 @@ with primary_cols[1]:
 with primary_cols[2]:
     stage_val = _NARRATIVE_LABELS.get(int(vn), str(vn)) if vn != "-" else vn
     st.metric("📖 Narrative Stage", stage_val, help="Story position (0=Env → 5=Resolution)")
+
 # Secondary: Zone Level, Boundary Type, R:R, Deployment Trigger
 with st.expander("🔎 Details: Zone Level, Boundary Type, R:R, Deployment", expanded=False):
     sec_cols = st.columns(4)
@@ -148,55 +129,7 @@ with st.expander("🔎 Details: Zone Level, Boundary Type, R:R, Deployment", exp
 
 st.markdown("---")
 
-# ----- Auto Log: append on narrative change -----
-if auto_log and result:
-    prev = st.session_state.narrative_prev_state
-    cur_4h = int(v4) if v4 != "-" and isinstance(v4, (int, float)) else None
-    cur_1h = int(v1) if v1 != "-" and isinstance(v1, (int, float)) else None
-    cur_ns = int(vn) if vn != "-" and isinstance(vn, (int, float)) else None
-    cur_dt = bool(vdt) if vdt is True or vdt is False else None
-    stage_changes = []
-    if prev.get("stage_4h") is not None and cur_4h is not None and prev.get("stage_4h") != cur_4h:
-        stage_changes.append(f"4H: {_STAGE_LABELS.get(prev['stage_4h'], '?')}→{_STAGE_LABELS.get(cur_4h, '?')}")
-    if prev.get("stage_1h") is not None and cur_1h is not None and prev.get("stage_1h") != cur_1h:
-        stage_changes.append(f"1H: {_STAGE_LABELS.get(prev['stage_1h'], '?')}→{_STAGE_LABELS.get(cur_1h, '?')}")
-    if prev.get("narrative_stage") is not None and cur_ns is not None and prev.get("narrative_stage") != cur_ns:
-        stage_changes.append(f"Narrative: {_NARRATIVE_LABELS.get(prev['narrative_stage'], '?')}→{_NARRATIVE_LABELS.get(cur_ns, '?')}")
-    if prev.get("deployment_trigger") is not None and cur_dt is not None and prev.get("deployment_trigger") != cur_dt:
-        stage_changes.append("Deployment: " + ("No→Yes" if cur_dt else "Yes→No"))
-    if stage_changes:
-        try:
-            ts = df_15m_raw.index[-1]
-            date_str, time_str = timestamp_to_HKT_display(ts)
-            st.session_state.narrative_log.append({
-                "Time": f"{date_str} {time_str}",
-                "Asset": asset,
-                "Stage Change": " | ".join(stage_changes),
-                "Deployment Trigger": "Yes" if cur_dt else "No",
-            })
-        except Exception:
-            pass
-    st.session_state.narrative_prev_state = {
-        "stage_4h": cur_4h,
-        "stage_1h": cur_1h,
-        "narrative_stage": cur_ns,
-        "deployment_trigger": cur_dt,
-    }
-
-# ----- Visualization: HKT copy only -----
-df_4h_viz = convert_to_HKT(df_4h_raw)
-df_1h_viz = convert_to_HKT(df_1h_raw)
-df_15m_viz = convert_to_HKT(df_15m_raw)
-
-# Align result's 15m outputs to viz index (same length; viz is just tz-converted)
-n_15 = len(df_15m_viz)
-boundary_price = result.get("boundary_price") or []
-if not isinstance(boundary_price, list):
-    boundary_price = []
-if len(boundary_price) != n_15:
-    boundary_price = (boundary_price + [None] * n_15)[:n_15]
-
-# ----- Weekly Opportunity Table (last 4 weeks, HKT display) -----
+# ----- Weekly Opportunity Table -----
 st.subheader("Weekly Opportunity Log – Last 4 Weeks")
 try:
     rows = build_opportunity_rows(result, df_15m_raw, lookback_weeks=4)
@@ -206,37 +139,20 @@ except Exception as e:
     st.exception(e)
 st.markdown("---")
 
-# ----- Auto Log table (above charts, when enabled) -----
-if auto_log and st.session_state.narrative_log:
-    st.subheader("Narrative change log")
-    log_df = pd.DataFrame(st.session_state.narrative_log[-50:])  # last 50 entries
-    st.dataframe(log_df, use_container_width=True, hide_index=True, height=min(200, 52 + 35 * len(log_df)))
-    st.markdown("---")
-
-# ----- Three-panel chart: display range from Time Window (HKT viz only) -----
+# ----- Three-panel chart: Real market data (HKT viz) -----
 st.subheader(f"{asset} – 4H Season / 1H Wind / 15M Deployment")
-# Apply Time Window; then cap bar count like Alert Dashboard (PLOT_BARS=500) for fast, clean charts
-last_n_15m, last_n_1h, last_n_4h = window_to_bars(time_window_weeks)
-n_15 = min(last_n_15m, len(df_15m_viz))
-n_1h = min(last_n_1h, len(df_1h_viz))
-n_4h = min(last_n_4h, len(df_4h_viz))
-# Match Alert Dashboard: ~500 bars per TF (layout.py PLOT_BARS=500)
-PLOT_BARS_15M = 500
-PLOT_BARS_1H = 125
-PLOT_BARS_4H = 31
-df_4h_display = df_4h_viz.tail(min(n_4h, PLOT_BARS_4H))
-df_1h_display = df_1h_viz.tail(min(n_1h, PLOT_BARS_1H))
-df_15m_display = df_15m_viz.tail(min(n_15, PLOT_BARS_15M))
+
+# Convert to HKT for visualization only
+df_4h_viz = convert_to_HKT(df_4h_raw)
+df_1h_viz = convert_to_HKT(df_1h_raw)
+df_15m_viz = convert_to_HKT(df_15m_raw)
+
 try:
-    fig = build_three_panel(df_4h_display, df_1h_display, df_15m_display, result)
+    fig = build_three_panel_figure(df_15m_viz, df_1h_viz, df_4h_viz, result)
     st.plotly_chart(fig, use_container_width=True)
-    st.caption("Charts: last 500 bars per TF (Alert Dashboard style). Narrative uses full history.")
 except Exception as e:
     st.error("Chart rendering failed.")
     st.exception(e)
 
-# ----- Replay Mode (Phase 2 placeholder) -----
 st.sidebar.markdown("---")
-replay_mode = st.sidebar.checkbox("Replay Mode (Phase 2)", value=False)
-if replay_mode:
-    st.sidebar.caption("Step candle-by-candle 15M; narrative recalculated each step. Coming in Phase 2.")
+st.sidebar.info("📊 Real market data via yfinance (15M → 1H/4H auto-resample). Cached for fast subsequent loads.")
