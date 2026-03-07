@@ -52,8 +52,9 @@ def window_to_bars(weeks: int):
 
 # ----- Raw data only for engine -----
 asset = st.sidebar.selectbox("Asset", ASSETS, index=0)
-# Default 4000 bars (~40 days) so 4-week Time Window works correctly
-bars_15m = st.sidebar.slider("15M bars (fewer = faster load)", 500, 5000, 4000, 100)
+# Optimized default: 1500 bars (~15 days) = fast load + sufficient 2-week history
+# 1500 bars × 15 min = 22,500 min = 15.6 days. Display 2 weeks = 1344 bars. Good buffer for structural analysis.
+bars_15m = st.sidebar.slider("15M bars (fewer = faster load)", 500, 3000, 1500, 100)
 
 # Time Window: chart display range only (does not change engine history)
 time_window_label = st.sidebar.selectbox(
@@ -71,7 +72,7 @@ if "narrative_log" not in st.session_state:
 if "narrative_prev_state" not in st.session_state:
     st.session_state.narrative_prev_state = {}
 
-with st.spinner("Loading data and running narrative engine… (first run may take 10–30s)"):
+with st.spinner("Loading data and running narrative engine… (~5–10s on first run, instant on cache):"):
     df_4h_raw, df_1h_raw, df_15m_raw, result = _cached_fetch_and_run(asset, bars_15m)
 if df_4h_raw is None or df_15m_raw is None:
     st.warning("No data for selected asset. Add CSV under data/raw/{asset}_15M.csv or use sample.")
