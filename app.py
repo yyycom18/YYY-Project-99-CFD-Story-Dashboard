@@ -214,18 +214,22 @@ if auto_log and st.session_state.narrative_log:
 
 # ----- Three-panel chart: display range from Time Window (HKT viz only) -----
 st.subheader(f"{asset} – 4H Season / 1H Wind / 15M Deployment")
-# Apply Time Window via tail(last_n_bars); chart display only, engine unchanged
+# Apply Time Window; then cap bar count so charts render quickly (like previous framework)
 last_n_15m, last_n_1h, last_n_4h = window_to_bars(time_window_weeks)
-# Cap to available data so 1w / 2w / 4w show different ranges when bars_15m >= 2688
 n_15 = min(last_n_15m, len(df_15m_viz))
 n_1h = min(last_n_1h, len(df_1h_viz))
 n_4h = min(last_n_4h, len(df_4h_viz))
-df_4h_display = df_4h_viz.tail(n_4h)
-df_1h_display = df_1h_viz.tail(n_1h)
-df_15m_display = df_15m_viz.tail(n_15)
+# Hard cap for fast rendering: avoid sending 1000+ bars to Plotly so all 3 charts show quickly
+MAX_CHART_15M = 600
+MAX_CHART_1H = 168
+MAX_CHART_4H = 42
+df_4h_display = df_4h_viz.tail(min(n_4h, MAX_CHART_4H))
+df_1h_display = df_1h_viz.tail(min(n_1h, MAX_CHART_1H))
+df_15m_display = df_15m_viz.tail(min(n_15, MAX_CHART_15M))
 try:
     fig = build_three_panel(df_4h_display, df_1h_display, df_15m_display, result)
     st.plotly_chart(fig, use_container_width=True)
+    st.caption("Charts capped for fast display (4H / 1H / 15M). Narrative uses full history.")
 except Exception as e:
     st.error("Chart rendering failed.")
     st.exception(e)
