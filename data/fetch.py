@@ -59,6 +59,20 @@ def load_ohlc_csv(asset: str, timeframe: str) -> Optional[pd.DataFrame]:
         return None
 
 
+# Realistic base price and typical range (volatility) per asset. Do not normalize.
+_ASSET_BASE_PRICE = {
+    "XAUUSD": (5100.0, 50.0),   # Gold (e.g. 51.00 * 100); move ~50
+    "EURUSD": (1.0650, 0.0040),
+    "AUDUSD": (0.6520, 0.0025),
+    "GBPUSD": (1.2650, 0.0050),
+    "USDCAD": (1.3600, 0.0040),
+    "NZDUSD": (0.6020, 0.0025),
+    "USDCHF": (0.8820, 0.0030),
+    "USDJPY": (149.50, 1.20),
+    "HK50": (17000.0, 150.0),
+}
+
+
 def generate_sample_ohlc(
     asset: str,
     timeframe: str,
@@ -67,16 +81,19 @@ def generate_sample_ohlc(
 ) -> pd.DataFrame:
     """
     Generate sample OHLC for development when no CSV exists.
+    Uses realistic market ranges per asset (no normalization).
     Index is UTC. Columns: Open, High, Low, Close.
     """
     if freq is None:
         freq = {"15M": "15min", "1H": "1h", "4H": "4h"}.get(timeframe, "1h")
     import numpy as np
+    base, vol = _ASSET_BASE_PRICE.get(asset, (100.0, 1.0))
     rng = pd.date_range(end=pd.Timestamp.now("UTC"), periods=bars, freq=freq)
     np.random.seed(hash(asset) % 2**32)
-    close = 100 + np.cumsum(np.random.randn(bars) * 0.3)
-    high = close + np.abs(np.random.randn(bars)) * 0.5
-    low = close - np.abs(np.random.randn(bars)) * 0.5
+    # Random walk around base; scale step by vol
+    close = base + np.cumsum(np.random.randn(bars) * (vol * 0.15))
+    high = close + np.abs(np.random.randn(bars)) * (vol * 0.3)
+    low = close - np.abs(np.random.randn(bars)) * (vol * 0.3)
     open_ = np.roll(close, 1)
     open_[0] = close[0]
     df = pd.DataFrame(

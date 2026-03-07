@@ -241,15 +241,15 @@ def build_three_panel(
     result: Dict[str, Any],
 ) -> go.Figure:
     """
-    Build 3-panel figure: 4H (stage background), 1H, 15M (zones, fib, boundary).
-    All df_*_viz must be HKT. result from run_narrative_engine (aligned to 15m; 4h/1h are full TF).
+    Build exactly 3 panels: Row 1 = 4H Season, Row 2 = 1H Wind, Row 3 = 15M Deployment.
+    All df_*_viz must be HKT (UTC+8). result from run_narrative_engine.
     """
     fig = make_subplots(
         rows=3,
         cols=1,
         shared_xaxes=False,
         vertical_spacing=0.08,
-        subplot_titles=("4H Trend", "1H Structure", "15M Deployment"),
+        subplot_titles=("4H Season", "1H Wind", "15M Deployment"),
         row_heights=[0.35, 0.35, 0.30],
     )
     # 4H
@@ -373,4 +373,8 @@ def build_three_panel(
     fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], row=1, col=1)
     fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], row=2, col=1)
     fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], row=3, col=1)
+    # Y-axis on the right for all subplots (TradingView-style)
+    fig.update_yaxes(side="right", row=1, col=1)
+    fig.update_yaxes(side="right", row=2, col=1)
+    fig.update_yaxes(side="right", row=3, col=1)
     return fig
