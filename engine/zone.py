@@ -12,6 +12,7 @@ import numpy as np
 from .structure import (
     get_last_confirmed_swing_high,
     get_last_confirmed_swing_low,
+    _normalize_columns,
 )
 
 ZONE_BODY_MULTIPLIER = 1.8
@@ -72,6 +73,7 @@ def is_level1_zone(
 
 def _atr_or_range(df: pd.DataFrame, index: int, window: int = ATR_WINDOW) -> float:
     """Volatility threshold: rolling range (high-low) over window, or single bar range."""
+    df = _normalize_columns(df)  # Ensure uppercase column names
     if index < 0 or index >= len(df):
         return 0.0
     start = max(0, index - window + 1)
@@ -96,6 +98,7 @@ def is_not_fully_retraced(
     Returns True if the break has NOT been fully retraced (zone still valid).
     If a future bar's close comes within volatility_threshold of the zone start, consider retraced.
     """
+    df = _normalize_columns(df)  # Ensure uppercase column names
     if index + lookahead >= len(df):
         return True
     volatility_threshold = _atr_or_range(df, index, ATR_WINDOW) * vol_factor
@@ -130,6 +133,7 @@ def is_level2_zone_up(
     - Close beyond last confirmed swing high
     - Break not fully retraced (volatility-adaptive lookahead)
     """
+    df = _normalize_columns(df)  # Ensure uppercase column names
     if not is_level1_zone(df, i, body_mult, wick_pct_max, avg_n):
         return False
     swing_high = get_last_confirmed_swing_high(df, i, swing_highs=swing_highs)
@@ -159,6 +163,7 @@ def is_level2_zone_down(
     Level 2 – Structural Break Zone (down):
     - Satisfies Level 1, close below swing low, break not retraced (adaptive).
     """
+    df = _normalize_columns(df)  # Ensure uppercase column names
     if not is_level1_zone(df, i, body_mult, wick_pct_max, avg_n):
         return False
     swing_low = get_last_confirmed_swing_low(df, i, swing_lows=swing_lows)

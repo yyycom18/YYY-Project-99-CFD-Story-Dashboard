@@ -16,6 +16,25 @@ BODY_AVG_N = 20
 STRUCTURE_BODY_MULTIPLIER = 1.5
 
 
+def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize column names to uppercase (Open, High, Low, Close) for engine compatibility."""
+    if df is None or df.empty:
+        return df
+    # Create mapping: lowercase/mixed case → uppercase
+    m = {}
+    for c in df.columns:
+        c_lower = c.lower()
+        if c_lower == "open":
+            m[c] = "Open"
+        elif c_lower == "high":
+            m[c] = "High"
+        elif c_lower == "low":
+            m[c] = "Low"
+        elif c_lower == "close":
+            m[c] = "Close"
+    return df.rename(columns=m) if m else df
+
+
 def _body_size(series: pd.Series) -> pd.Series:
     return (series["Close"] - series["Open"]).abs()
 
@@ -31,6 +50,7 @@ def detect_swing_highs(df: pd.DataFrame, left: int = FRACTAL_LEFT, right: int = 
     high[i] >= high[i-k] for k in 1..left and high[i] >= high[i+k] for k in 1..right.
     Returns boolean series True at swing high bars.
     """
+    df = _normalize_columns(df)  # Ensure uppercase column names
     high = df["High"].values
     n = len(high)
     out = np.zeros(n, dtype=bool)
@@ -54,6 +74,7 @@ def detect_swing_highs(df: pd.DataFrame, left: int = FRACTAL_LEFT, right: int = 
 
 def detect_swing_lows(df: pd.DataFrame, left: int = FRACTAL_LEFT, right: int = FRACTAL_RIGHT) -> pd.Series:
     """Fractal swing lows. Returns boolean series True at swing low bars."""
+    df = _normalize_columns(df)  # Ensure uppercase column names
     low = df["Low"].values
     n = len(low)
     out = np.zeros(n, dtype=bool)
@@ -81,6 +102,7 @@ def get_last_confirmed_swing_high(
     swing_highs: Optional[pd.Series] = None,
 ) -> Optional[float]:
     """Last confirmed swing high strictly before bar index up_to_idx. Pass swing_highs to avoid recomputing."""
+    df = _normalize_columns(df)  # Ensure uppercase column names
     if swing_highs is None:
         swing_highs = detect_swing_highs(df)
     for i in range(up_to_idx - 1, -1, -1):
@@ -95,6 +117,7 @@ def get_last_confirmed_swing_low(
     swing_lows: Optional[pd.Series] = None,
 ) -> Optional[float]:
     """Last confirmed swing low strictly before bar index up_to_idx. Pass swing_lows to avoid recomputing."""
+    df = _normalize_columns(df)  # Ensure uppercase column names
     if swing_lows is None:
         swing_lows = detect_swing_lows(df)
     for i in range(up_to_idx - 1, -1, -1):
@@ -116,6 +139,7 @@ def is_structure_break_up(
     - Body size > body_mult * average body (last avg_n)
     - Not wick-only break (close must be above swing)
     """
+    df = _normalize_columns(df)  # Ensure uppercase column names
     if i < 1:
         return False
     swing_high = get_last_confirmed_swing_high(df, i, swing_highs=swing_highs)
@@ -147,6 +171,7 @@ def is_structure_break_down(
     - Close below previous confirmed swing low
     - Body size > body_mult * average body
     """
+    df = _normalize_columns(df)  # Ensure uppercase column names
     if i < 1:
         return False
     swing_low = get_last_confirmed_swing_low(df, i, swing_lows=swing_lows)

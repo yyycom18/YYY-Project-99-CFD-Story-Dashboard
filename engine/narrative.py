@@ -20,6 +20,7 @@ from .structure import (
     detect_swing_lows,
     get_last_confirmed_swing_high,
     get_last_confirmed_swing_low,
+    _normalize_columns,
 )
 from .fib_logic import active_retracement_boundary
 
@@ -155,7 +156,13 @@ def run_narrative_engine(
     """
     Run narrative engine on raw UTC data. Returns state per bar and opportunity log.
     df_* are raw; do not pass viz-converted data.
+    Normalizes column names internally to handle both lowercase (yfinance) and uppercase formats.
     """
+    # Normalize all dataframes to uppercase column names (engine expects this)
+    df_4h = _normalize_columns(df_4h)
+    df_1h = _normalize_columns(df_1h)
+    df_15m = _normalize_columns(df_15m)
+    
     n_15 = len(df_15m)
     if n_15 == 0:
         return {

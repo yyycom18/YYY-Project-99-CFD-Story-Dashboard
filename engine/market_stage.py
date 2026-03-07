@@ -17,6 +17,7 @@ from .structure import (
     is_structure_break_down,
     get_last_confirmed_swing_high,
     get_last_confirmed_swing_low,
+    _normalize_columns,
 )
 
 # 1H: must exceed this retracement ratio to allow direction flip from parent
@@ -50,6 +51,7 @@ def _retracement_ratio_at(
     Returns ratio in [0, 1]: 0 = no retracement, 1 = full retracement.
     Uses current bar low vs swing high for bull move; current bar high vs swing low for bear.
     """
+    df = _normalize_columns(df)  # Ensure uppercase column names
     if i >= len(df) or i < 0:
         return None
     sh = get_last_confirmed_swing_high(df, i, swing_highs=swing_highs)

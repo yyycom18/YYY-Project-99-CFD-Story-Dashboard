@@ -8,7 +8,7 @@ from typing import Optional, Tuple
 
 import pandas as pd
 
-from .structure import get_last_confirmed_swing_high, get_last_confirmed_swing_low
+from .structure import get_last_confirmed_swing_high, get_last_confirmed_swing_low, _normalize_columns
 from .zone import is_level2_zone_up, is_level2_zone_down
 
 FIB_DEFAULT = 0.618
@@ -86,6 +86,7 @@ def zone_dominant_boundary_price(
     Zone-Dominant: if Level 2 zone exists, return zone start as boundary (no fib range lock).
     Zone can be at 0.45, 0.5, 0.618, 0.7, etc. – zone start overrides 0.618 whenever L2 zone exists.
     """
+    df = _normalize_columns(df)  # Ensure uppercase column names
     for j in range(max(0, i - 10), i + 1):
         if j >= len(df):
             break
