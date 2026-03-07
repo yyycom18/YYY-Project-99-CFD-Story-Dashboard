@@ -28,8 +28,12 @@ def get_swing_points(df: pd.DataFrame) -> Tuple[List[Tuple[Any, float]], List[Tu
     if df is None or len(df) < 5:
         return [], []
     
-    swing_highs_idx = detect_swing_highs(df)
-    swing_lows_idx = detect_swing_lows(df)
+    swing_highs_bool = detect_swing_highs(df)
+    swing_lows_bool = detect_swing_lows(df)
+    
+    # Convert boolean series to list of indices where True
+    swing_highs_idx = [i for i, v in enumerate(swing_highs_bool) if v]
+    swing_lows_idx = [i for i, v in enumerate(swing_lows_bool) if v]
     
     idx = df.index
     highs = [(idx[i], float(df["high"].iloc[i])) for i in swing_highs_idx]
@@ -44,8 +48,12 @@ def get_blocking_levels(df: pd.DataFrame) -> Tuple[List[float], List[float]]:
     if df is None or len(df) < 5:
         return [], []
     
-    swing_highs_idx = detect_swing_highs(df)
-    swing_lows_idx = detect_swing_lows(df)
+    swing_highs_bool = detect_swing_highs(df)
+    swing_lows_bool = detect_swing_lows(df)
+    
+    # Convert boolean series to list of indices where True
+    swing_highs_idx = [i for i, v in enumerate(swing_highs_bool) if v]
+    swing_lows_idx = [i for i, v in enumerate(swing_lows_bool) if v]
     
     h_vals = sorted([float(df["high"].iloc[i]) for i in swing_highs_idx], reverse=True)[:2]
     l_vals = sorted([float(df["low"].iloc[i]) for i in swing_lows_idx])[:2]
