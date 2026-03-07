@@ -4,7 +4,6 @@ Shows where the market story stands across 4H Season, 1H Wind, 15M Deployment.
 Raw data → engine only. All visualization uses HKT (UTC+8) via convert_to_HKT().
 """
 import sys
-from datetime import timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -41,7 +40,15 @@ def _cached_fetch_and_run(asset: str, bars_15m: int):
 
 
 st.title("CFD Story Dashboard")
-st.caption("Narrative Coach — where the story currently stands")
+st.caption("Narrative Story Monitor — where the market story currently stands (4H Season → 1H Wind → 15M Deployment)")
+
+# Time window: bars to show per timeframe (chart display only; engine uses full history)
+def window_to_bars(weeks: int):
+    """Return (bars_15m, bars_1h, bars_4h) for chart display range. 15M: 672 bars/week."""
+    bars_15m = weeks * 7 * 24 * 4   # 672 per week
+    bars_1h = weeks * 7 * 24        # 168 per week
+    bars_4h = weeks * 7 * 6         # 42 per week
+    return bars_15m, bars_1h, bars_4h
 
 # ----- Raw data only for engine -----
 asset = st.sidebar.selectbox("Asset", ASSETS, index=0)
@@ -68,15 +75,13 @@ if df_4h_raw is None or df_15m_raw is None:
     st.warning("No data for selected asset. Add CSV under data/raw/{asset}_15M.csv or use sample.")
     st.stop()
 
-# ----- Data debug info -----
-st.write("Data sizes:")
-st.write({"4H": len(df_4h_raw), "1H": len(df_1h_raw), "15M": len(df_15m_raw)})
-
 # ----- Engine result (from cache or fresh run) -----
 if result is None:
     st.error("Narrative engine returned None.")
     st.stop()
-st.write("Engine result keys:", list(result.keys()))
+with st.expander("Data & engine info", expanded=False):
+    st.write("Data sizes:", {"4H": len(df_4h_raw), "1H": len(df_1h_raw), "15M": len(df_15m_raw)})
+    st.write("Engine result keys:", list(result.keys()))
 
 # ----- Narrative Summary Panel: story position (primary + secondary) -----
 _STAGE_LABELS = {-1: "Downside", 0: "Neutral", 1: "Upside"}
@@ -111,6 +116,7 @@ vrr = _last_scalar(rr_list)
 vdt = _last_scalar(dt_list)
 
 st.subheader("Current Narrative State")
+st.caption("Story position: primary (Season, Wind, Stage) and secondary details below.")
 # Primary: 4H Season, 1H Wind, Narrative Stage
 primary_cols = st.columns(3)
 with primary_cols[0]:
@@ -201,16 +207,11 @@ if auto_log and st.session_state.narrative_log:
 
 # ----- Three-panel chart: display range from Time Window (HKT viz only) -----
 st.subheader(f"{asset} – 4H Season / 1H Wind / 15M Deployment")
-# Apply Time Window to chart display only
-if not df_15m_viz.empty:
-    cutoff = df_15m_viz.index[-1] - timedelta(weeks=time_window_weeks)
-    df_4h_display = df_4h_viz[df_4h_viz.index >= cutoff]
-    df_1h_display = df_1h_viz[df_1h_viz.index >= cutoff]
-    df_15m_display = df_15m_viz[df_15m_viz.index >= cutoff]
-else:
-    df_4h_display = df_4h_viz
-    df_1h_display = df_1h_viz
-    df_15m_display = df_15m_viz
+# Apply Time Window via tail(last_n_bars); chart display only, engine unchanged
+last_n_15m, last_n_1h, last_n_4h = window_to_bars(time_window_weeks)
+df_4h_display = df_4h_viz.tail(last_n_4h) if len(df_4h_viz) > last_n_4h else df_4h_viz
+df_1h_display = df_1h_viz.tail(last_n_1h) if len(df_1h_viz) > last_n_1h else df_1h_viz
+df_15m_display = df_15m_viz.tail(last_n_15m) if len(df_15m_viz) > last_n_15m else df_15m_viz
 try:
     fig = build_three_panel(df_4h_display, df_1h_display, df_15m_display, result)
     st.plotly_chart(fig, use_container_width=True)
