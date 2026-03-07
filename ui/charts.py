@@ -243,13 +243,20 @@ def build_three_panel(
     """
     Build exactly 3 panels: Row 1 = 4H Season, Row 2 = 1H Wind, Row 3 = 15M Deployment.
     All df_*_viz must be HKT (UTC+8). result from run_narrative_engine.
+    
+    Features:
+    - Stage background coloring (green=Upside, red=Downside)
+    - Y-axis on right (TradingView style)
+    - 0.08 vertical spacing for clarity
+    - Weekend gaps removed
+    - Consistent styling across all timeframes
     """
     fig = make_subplots(
         rows=3,
         cols=1,
         shared_xaxes=False,
         vertical_spacing=0.08,
-        subplot_titles=("4H Season", "1H Wind", "15M Deployment"),
+        subplot_titles=("🔵 4H Season – Trend Direction", "💨 1H Wind – Structure Movement", "📊 15M Deployment – Entry Context"),
         row_heights=[0.35, 0.35, 0.30],
     )
     # 4H
@@ -366,10 +373,13 @@ def build_three_panel(
         col=1,
     )
     fig.update_layout(
-        height=900,
+        height=1000,
         template="plotly_white",
         showlegend=False,
+        hovermode="x unified",
+        margin=dict(l=50, r=100, t=80, b=50),
     )
+    # Remove weekend gaps
     fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], row=1, col=1)
     fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], row=2, col=1)
     fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], row=3, col=1)

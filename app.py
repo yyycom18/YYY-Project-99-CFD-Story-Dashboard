@@ -116,27 +116,32 @@ vrr = _last_scalar(rr_list)
 vdt = _last_scalar(dt_list)
 
 st.subheader("Current Narrative State")
-st.caption("Story position: primary (Season, Wind, Stage) and secondary details below.")
+st.caption("Story position: 4H Season → 1H Wind → Narrative Stage (Primary) | Zone & Deployment Details (Secondary)")
 # Primary: 4H Season, 1H Wind, Narrative Stage
 primary_cols = st.columns(3)
 with primary_cols[0]:
-    st.metric("4H Season", _STAGE_LABELS.get(int(v4), str(v4)) if v4 != "-" else v4)
+    season_val = _STAGE_LABELS.get(int(v4), str(v4)) if v4 != "-" else v4
+    st.metric("🔵 4H Season", season_val, help="Higher timeframe trend direction (Upside/Neutral/Downside)")
 with primary_cols[1]:
-    st.metric("1H Wind", _STAGE_LABELS.get(int(v1), str(v1)) if v1 != "-" else v1)
+    wind_val = _STAGE_LABELS.get(int(v1), str(v1)) if v1 != "-" else v1
+    st.metric("💨 1H Wind", wind_val, help="Current structure within the season")
 with primary_cols[2]:
-    st.metric("Narrative Stage", _NARRATIVE_LABELS.get(int(vn), str(vn)) if vn != "-" else vn)
+    stage_val = _NARRATIVE_LABELS.get(int(vn), str(vn)) if vn != "-" else vn
+    st.metric("📖 Narrative Stage", stage_val, help="Story position (0=Env → 5=Resolution)")
 # Secondary: Zone Level, Boundary Type, R:R, Deployment Trigger
-with st.expander("Details (Zone, Boundary, R:R, Deployment)", expanded=False):
+with st.expander("🔎 Details: Zone Level, Boundary Type, R:R, Deployment", expanded=False):
     sec_cols = st.columns(4)
     with sec_cols[0]:
-        st.metric("Zone Level", str(int(vzl)) if isinstance(vzl, (int, float)) else vzl)
+        zone_val = str(int(vzl)) if isinstance(vzl, (int, float)) else vzl
+        st.metric("Zone Level", zone_val, help="1 = Momentum | 2 = Structural Break")
     with sec_cols[1]:
-        st.metric("Boundary Type", str(vbt) if vbt != "-" else vbt)
+        st.metric("Boundary Type", str(vbt) if vbt != "-" else vbt, help="0.618 or Zone-Dominant")
     with sec_cols[2]:
         rr_display = f"{float(vrr):.2f}" if isinstance(vrr, (int, float)) else (vrr if vrr != "-" else "-")
-        st.metric("R:R", rr_display)
+        st.metric("R:R", rr_display, help="Risk:Reward ratio for deployment (min 1:1.3)")
     with sec_cols[3]:
-        st.metric("Deployment Trigger", "Yes" if vdt is True else ("No" if vdt is False else str(vdt)))
+        dt_display = "Yes ✓" if vdt is True else ("No" if vdt is False else str(vdt))
+        st.metric("Deployment Trigger", dt_display, help="Ready to deploy?")
 
 st.markdown("---")
 
