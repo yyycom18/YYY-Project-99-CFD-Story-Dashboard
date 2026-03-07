@@ -66,6 +66,59 @@ def _stage_shapes(
     return shapes
 
 
+def _stage_shapes_for_subplot(
+    df: pd.DataFrame,
+    stage_series: pd.Series,
+    yref: str,
+) -> List[Dict[str, Any]]:
+    """
+    One rectangle per consecutive run of same stage (not per bar) for fast rendering.
+    Returns shapes with data coords for use in make_subplots.
+    """
+    shapes = []
+    if stage_series is None or len(df) == 0:
+        return shapes
+    stage_vals = stage_series.reindex(df.index).ffill().bfill()
+    y0 = float(df["Low"].min())
+    y1 = float(df["High"].max())
+    i = 0
+    while i < len(df):
+        s = int(stage_vals.iloc[i]) if i < len(stage_vals) else 0
+        j = i
+        while j < len(df) and (int(stage_vals.iloc[j]) if j < len(stage_vals) else 0) == s:
+            j += 1
+        if s == 1:
+            shapes.append(
+                dict(
+                    type="rect",
+                    x0=df.index[i],
+                    x1=df.index[j - 1] if j > i else df.index[i],
+                    y0=y0,
+                    y1=y1,
+                    yref=yref,
+                    fillcolor=STAGE_UP_COLOR,
+                    line_width=0,
+                    layer="below",
+                )
+            )
+        elif s == -1:
+            shapes.append(
+                dict(
+                    type="rect",
+                    x0=df.index[i],
+                    x1=df.index[j - 1] if j > i else df.index[i],
+                    y0=y0,
+                    y1=y1,
+                    yref=yref,
+                    fillcolor=STAGE_DOWN_COLOR,
+                    line_width=0,
+                    layer="below",
+                )
+            )
+        i = j
+    return shapes
+
+
 def _zone_overlay(
     fig: go.Figure,
     df: pd.DataFrame,
@@ -272,42 +325,8 @@ def build_three_panel(
         col=1,
     )
     stage_4h = result.get("stage_4h")
-    if stage_4h is not None:
-        stage_4h_aligned = stage_4h.reindex(df_4h_viz.index).ffill().bfill()
-        for i in range(len(df_4h_viz)):
-            s = int(stage_4h_aligned.iloc[i]) if i < len(stage_4h_aligned) else 0
-            if s == 1:
-                fig.add_shape(
-                    dict(
-                        type="rect",
-                        x0=df_4h_viz.index[i],
-                        x1=df_4h_viz.index[min(i + 1, len(df_4h_viz) - 1)],
-                        y0=df_4h_viz["Low"].min(),
-                        y1=df_4h_viz["High"].max(),
-                        yref="y",
-                        fillcolor=STAGE_UP_COLOR,
-                        line_width=0,
-                        layer="below",
-                    ),
-                    row=1,
-                    col=1,
-                )
-            elif s == -1:
-                fig.add_shape(
-                    dict(
-                        type="rect",
-                        x0=df_4h_viz.index[i],
-                        x1=df_4h_viz.index[min(i + 1, len(df_4h_viz) - 1)],
-                        y0=df_4h_viz["Low"].min(),
-                        y1=df_4h_viz["High"].max(),
-                        yref="y",
-                        fillcolor=STAGE_DOWN_COLOR,
-                        line_width=0,
-                        layer="below",
-                    ),
-                    row=1,
-                    col=1,
-                )
+    for sh in _stage_shapes_for_subplot(df_4h_viz, stage_4h, "y"):
+        fig.add_shape(sh, row=1, col=1)
     # 1H
     fig.add_trace(
         go.Candlestick(
@@ -322,42 +341,8 @@ def build_three_panel(
         col=1,
     )
     stage_1h = result.get("stage_1h")
-    if stage_1h is not None:
-        stage_1h_aligned = stage_1h.reindex(df_1h_viz.index).ffill().bfill()
-        for i in range(len(df_1h_viz)):
-            s = int(stage_1h_aligned.iloc[i]) if i < len(stage_1h_aligned) else 0
-            if s == 1:
-                fig.add_shape(
-                    dict(
-                        type="rect",
-                        x0=df_1h_viz.index[i],
-                        x1=df_1h_viz.index[min(i + 1, len(df_1h_viz) - 1)],
-                        y0=df_1h_viz["Low"].min(),
-                        y1=df_1h_viz["High"].max(),
-                        yref="y2",
-                        fillcolor=STAGE_UP_COLOR,
-                        line_width=0,
-                        layer="below",
-                    ),
-                    row=2,
-                    col=1,
-                )
-            elif s == -1:
-                fig.add_shape(
-                    dict(
-                        type="rect",
-                        x0=df_1h_viz.index[i],
-                        x1=df_1h_viz.index[min(i + 1, len(df_1h_viz) - 1)],
-                        y0=df_1h_viz["Low"].min(),
-                        y1=df_1h_viz["High"].max(),
-                        yref="y2",
-                        fillcolor=STAGE_DOWN_COLOR,
-                        line_width=0,
-                        layer="below",
-                    ),
-                    row=2,
-                    col=1,
-                )
+    for sh in _stage_shapes_for_subplot(df_1h_viz, stage_1h, "y2"):
+        fig.add_shape(sh, row=2, col=1)
     # 15M
     fig.add_trace(
         go.Candlestick(
@@ -371,6 +356,9 @@ def build_three_panel(
         row=3,
         col=1,
     )
+    stage_15m = result.get("stage_15m")
+    for sh in _stage_shapes_for_subplot(df_15m_viz, stage_15m, "y3"):
+        fig.add_shape(sh, row=3, col=1)
     # Disable range sliders so only three clean charts show (no extra slider charts)
     fig.update_layout(
         height=1100,
