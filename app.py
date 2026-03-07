@@ -52,9 +52,8 @@ def window_to_bars(weeks: int):
 
 # ----- Raw data only for engine -----
 asset = st.sidebar.selectbox("Asset", ASSETS, index=0)
-# Default 1000 for faster first load; increase to 2800+ for full 4-week Time Window
-bars_15m = st.sidebar.slider("15M bars (fewer = faster load)", 500, 3500, 1000, 100)
-st.sidebar.caption("Tip: use 2800+ bars for 4-week Time Window.")
+# Default 4000 bars (~40 days) so 4-week Time Window works correctly
+bars_15m = st.sidebar.slider("15M bars (fewer = faster load)", 500, 5000, 4000, 100)
 
 # Time Window: chart display range only (does not change engine history)
 time_window_label = st.sidebar.selectbox(

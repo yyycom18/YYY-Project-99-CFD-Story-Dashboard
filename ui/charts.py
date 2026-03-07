@@ -253,10 +253,10 @@ def build_three_panel(
     fig = make_subplots(
         rows=3,
         cols=1,
-        shared_xaxes=False,
-        vertical_spacing=0.14,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
         subplot_titles=("4H Season", "1H Wind", "15M Deployment"),
-        row_heights=[0.35, 0.35, 0.30],
+        row_heights=[0.35, 0.30, 0.35],
     )
     # 4H
     fig.add_trace(
@@ -371,21 +371,24 @@ def build_three_panel(
         row=3,
         col=1,
     )
-    # Explicit y-domains so the three panels do not overlap (clear separation)
+    # Disable range sliders so only three clean charts show (no extra slider charts)
     fig.update_layout(
         height=1100,
         template="plotly_white",
         showlegend=False,
         hovermode="x unified",
         margin=dict(l=60, r=80, t=90, b=60),
+        xaxis_rangeslider_visible=False,
+        xaxis2_rangeslider_visible=False,
+        xaxis3_rangeslider_visible=False,
         yaxis=dict(domain=[0.68, 1.0]),
         yaxis2=dict(domain=[0.34, 0.62]),
         yaxis3=dict(domain=[0.0, 0.30]),
     )
-    # Remove weekend gaps
-    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], row=1, col=1)
-    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], row=2, col=1)
-    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], row=3, col=1)
+    # Remove weekend gaps and disable range sliders on all three subplots
+    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], rangeslider_visible=False, row=1, col=1)
+    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], rangeslider_visible=False, row=2, col=1)
+    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], rangeslider_visible=False, row=3, col=1)
     # Y-axis on the right for all subplots (TradingView-style)
     fig.update_yaxes(side="right", row=1, col=1)
     fig.update_yaxes(side="right", row=2, col=1)
