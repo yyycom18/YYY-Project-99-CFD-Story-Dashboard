@@ -46,8 +46,119 @@ st.caption("Narrative Story Monitor — Real market data via yfinance. 4H Season
 asset = st.sidebar.selectbox("Asset", list(SYMBOL_MAP.keys()), index=0)
 
 # Lookback days: chart display and engine history
-lookback_days = st.sidebar.slider("Lookback Days", 5, 30, 15, 1,
-    help="Fetch last N days of 15M data for engine and display")
+lookback_days = st.sidebar.slider(
+    "Lookback Days",
+    5,
+    30,
+    15,
+    1,
+    help="Fetch last N days of 15M data for engine and display",
+)
+
+# ----- Shared label helpers -----
+_STAGE_LABELS = {-1: "Downside", 0: "Neutral", 1: "Upside"}
+_NARRATIVE_LABELS = {
+    0: "Environment",
+    1: "Trend",
+    2: "Retracement",
+    3: "Deployment",
+    4: "Liquidity",
+    5: "Resolution",
+}
+
+
+def _last_scalar(x, default="-"):
+    """Get last value from series or list for display."""
+    if x is None:
+        return default
+    if hasattr(x, "iloc"):
+        return x.iloc[-1] if len(x) else default
+    if isinstance(x, list):
+        return x[-1] if len(x) else default
+    return x
+
+
+def _season_text(stage_val) -> str:
+    """Map numeric stage to Season/Wind text."""
+    try:
+        return _STAGE_LABELS.get(int(stage_val), str(stage_val))
+    except Exception:
+        return str(stage_val)
+
+
+def _narrative_text(stage_val) -> str:
+    """Map narrative stage 0–5 to descriptive label."""
+    try:
+        return _NARRATIVE_LABELS.get(int(stage_val), str(stage_val))
+    except Exception:
+        return str(stage_val)
+
+
+def _season_color(val: str) -> str:
+    """Color rule for Season / Wind columns."""
+    if val == "Upside":
+        return "background-color: #dcfce7; color: #166534;"  # green
+    if val == "Downside":
+        return "background-color: #fee2e2; color: #b91c1c;"  # red
+    if val == "Neutral":
+        return "background-color: #f3f4f6; color: #4b5563;"  # gray
+    return ""
+
+
+def _stage_color(val: str) -> str:
+    """Color rule for narrative Stage column."""
+    if val == "Environment":
+        return "background-color: #f3f4f6; color: #4b5563;"  # gray
+    if val == "Trend":
+        return "background-color: #dbeafe; color: #1d4ed8;"  # blue
+    if val == "Retracement":
+        return "background-color: #ffedd5; color: #c2410c;"  # orange
+    if val == "Deployment":
+        return "background-color: #dcfce7; color: #166534;"  # green
+    if val == "Liquidity":
+        return "background-color: #f5f3ff; color: #6b21a8;"  # purple
+    if val == "Resolution":
+        return "background-color: #e5e7eb; color: #374151;"  # neutral
+    return ""
+
+
+# ----- Story Scanner: multi-asset narrative overview -----
+st.subheader("Story Scanner")
+scanner_rows = []
+
+with st.spinner("Scanning story state across all assets…"):
+    for sym in SYMBOL_MAP.keys():
+        df4, df1, df15, res = _cached_fetch_and_run(sym, lookback_days)
+        if df4 is None or df15 is None or res is None:
+            continue
+        s4 = _last_scalar(res.get("stage_4h"))
+        s1 = _last_scalar(res.get("stage_1h"))
+        ns = _last_scalar(res.get("narrative_stage"))
+
+        season_text = _season_text(s4) if s4 != "-" else "N/A"
+        wind_text = _season_text(s1) if s1 != "-" else "N/A"
+        stage_text = _narrative_text(ns) if ns != "-" else "N/A"
+
+        scanner_rows.append(
+            {
+                "Asset": sym,
+                "Season (4H)": season_text,
+                "Wind (1H)": wind_text,
+                "Stage (Narrative)": stage_text,
+            }
+        )
+
+if scanner_rows:
+    scanner_df = pd.DataFrame(scanner_rows)
+    styled = (
+        scanner_df.style.applymap(_season_color, subset=["Season (4H)", "Wind (1H)"])
+        .applymap(_stage_color, subset=["Stage (Narrative)"])
+    )
+    st.dataframe(styled, use_container_width=True)
+else:
+    st.caption("No assets available for Story Scanner (data fetch may have failed).")
+
+st.markdown("---")
 
 with st.spinner("Loading real market data and running narrative engine… (~10–20s first time, instant on cache)"):
     df_4h_raw, df_1h_raw, df_15m_raw, result = _cached_fetch_and_run(asset, lookback_days)
@@ -64,21 +175,6 @@ if result is None:
 with st.expander("Data & engine info", expanded=False):
     st.write("Data sizes (bars):", {"4H": len(df_4h_raw), "1H": len(df_1h_raw), "15M": len(df_15m_raw)})
     st.write("Engine result keys:", list(result.keys()))
-
-# ----- Narrative Summary Panel -----
-_STAGE_LABELS = {-1: "Downside", 0: "Neutral", 1: "Upside"}
-_NARRATIVE_LABELS = {0: "Env", 1: "Trend/Shift", 2: "Retracement", 3: "Deployment", 4: "Liquidity", 5: "Resolution"}
-
-
-def _last_scalar(x, default="-"):
-    """Get last value from series or list for display."""
-    if x is None:
-        return default
-    if hasattr(x, "iloc"):
-        return x.iloc[-1] if len(x) else default
-    if isinstance(x, list):
-        return x[-1] if len(x) else default
-    return x
 
 
 s4h = result.get("stage_4h")
