@@ -122,15 +122,74 @@ def _stage_color(val: str) -> str:
     return ""
 
 
+def _regime_color(val: str) -> str:
+    """Color rule for Market Regime column."""
+    if val == "Compression":
+        return "background-color: #f3f4f6; color: #4b5563;"  # gray
+    if val == "Normal":
+        return "background-color: #dbeafe; color: #1d4ed8;"  # blue
+    if val == "Wide Range":
+        return "background-color: #ffedd5; color: #c2410c;"  # orange
+    return ""
+
+
+def _compute_market_regime(df_4h_raw: pd.DataFrame) -> str:
+    """
+    Compute Market Regime (market width) from 4H data.
+
+    1) Use last ~20 days ≈ 120 bars.
+    2) range = highest_high - lowest_low over last 120 bars.
+    3) ATR(14) using standard true range.
+    4) width_ratio = range / atr.
+    5) Classify into Compression / Normal / Wide Range.
+    """
+    if df_4h_raw is None or df_4h_raw.empty:
+        return "N/A"
+
+    df = df_4h_raw.sort_index()
+    if len(df) < 30:
+        return "N/A"
+
+    window = 120
+    recent = df.tail(window)
+    highest_high = recent["High"].max() if "High" in recent.columns else recent["high"].max()
+    lowest_low = recent["Low"].min() if "Low" in recent.columns else recent["low"].min()
+    mkt_range = float(highest_high - lowest_low)
+    if mkt_range <= 0:
+        return "Compression"
+
+    # ATR(14) – compute true range then rolling mean.
+    hl = (df["High"] - df["Low"]) if "High" in df.columns else (df["high"] - df["low"])
+    close_col = "Close" if "Close" in df.columns else "close"
+    h_cp = (df["High"] - df[close_col].shift()).abs() if "High" in df.columns else (df["high"] - df[close_col].shift()).abs()
+    l_cp = (df["Low"] - df[close_col].shift()).abs() if "Low" in df.columns else (df["low"] - df[close_col].shift()).abs()
+    tr = pd.concat([hl, h_cp, l_cp], axis=1).max(axis=1)
+    atr_series = tr.rolling(window=14, min_periods=14).mean()
+    atr = float(atr_series.tail(window).iloc[-1]) if not atr_series.tail(window).isna().all() else 0.0
+
+    if atr <= 0:
+        return "Compression"
+
+    width_ratio = mkt_range / atr
+
+    if width_ratio < 4:
+        return "Compression"
+    if width_ratio < 8:
+        return "Normal"
+    return "Wide Range"
+
+
 # ----- Story Scanner: multi-asset narrative overview -----
 st.subheader("Story Scanner")
 scanner_rows = []
 
 with st.spinner("Scanning story state across all assets…"):
     for sym in SYMBOL_MAP.keys():
+        # Each asset fetches its own data and runs its own narrative engine
         df4, df1, df15, res = _cached_fetch_and_run(sym, lookback_days)
         if df4 is None or df15 is None or res is None:
             continue
+
         s4 = _last_scalar(res.get("stage_4h"))
         s1 = _last_scalar(res.get("stage_1h"))
         ns = _last_scalar(res.get("narrative_stage"))
@@ -139,9 +198,12 @@ with st.spinner("Scanning story state across all assets…"):
         wind_text = _season_text(s1) if s1 != "-" else "N/A"
         stage_text = _narrative_text(ns) if ns != "-" else "N/A"
 
+        regime = _compute_market_regime(df4)
+
         scanner_rows.append(
             {
                 "Asset": sym,
+                "Market Regime": regime,
                 "Season (4H)": season_text,
                 "Wind (1H)": wind_text,
                 "Stage (Narrative)": stage_text,
@@ -151,7 +213,8 @@ with st.spinner("Scanning story state across all assets…"):
 if scanner_rows:
     scanner_df = pd.DataFrame(scanner_rows)
     styled = (
-        scanner_df.style.applymap(_season_color, subset=["Season (4H)", "Wind (1H)"])
+        scanner_df.style.applymap(_regime_color, subset=["Market Regime"])
+        .applymap(_season_color, subset=["Season (4H)", "Wind (1H)"])
         .applymap(_stage_color, subset=["Stage (Narrative)"])
     )
     st.dataframe(styled, use_container_width=True)
