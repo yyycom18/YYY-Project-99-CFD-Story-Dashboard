@@ -33,7 +33,24 @@ FULL_BARS_15M = 4000  # default history for engine and full-data operations
 def load_data(asset: str, bars_15m: int = FULL_BARS_15M):
     """Cache raw data fetching. Returns dict with '4H','1H','15M' DataFrames."""
     # fetch_all_timeframes expects parameter name `lookback_days`
+    print(f"DEBUG load_data: requesting asset={asset}, lookback_days={bars_15m}")
     data_raw = fetch_all_timeframes(asset, lookback_days=bars_15m)
+    # Debug prints
+    if not data_raw:
+        raise RuntimeError(f"load_data: fetch_all_timeframes returned empty for {asset}")
+    for tf in ["15M", "1H", "4H"]:
+        df = data_raw.get(tf)
+        if df is None:
+            print(f"DEBUG load_data: {tf} missing in data_raw for {asset}")
+        else:
+            try:
+                print(f"DEBUG load_data: {asset} {tf} shape={df.shape}, empty={df.empty}")
+            except Exception:
+                print(f"DEBUG load_data: {asset} {tf} present but could not read shape")
+    # If 15M is empty, raise clear error so caller can surface it
+    df15 = data_raw.get("15M")
+    if df15 is None or df15.empty:
+        raise RuntimeError(f"load_data: 15M data empty for {asset} after fetch. See logs for fetch failures.")
     return data_raw
 
 
@@ -211,8 +228,13 @@ scanner_rows = []
 with st.spinner("Scanning story state across all assets…"):
     for sym in SYMBOL_MAP.keys():
         # Each asset fetches its own data (cached) and runs its cached narrative engine
-        df4, df1, df15, res = run_engine_cached(sym)
+        try:
+            df4, df1, df15, res = run_engine_cached(sym)
+        except Exception as e:
+            st.error(f"Engine error for {sym}: {e}")
+            continue
         if df4 is None or df15 is None or res is None:
+            st.warning(f"No data for {sym}; skipping.")
             continue
 
         s4 = _last_scalar(res.get("stage_4h"))
@@ -249,7 +271,11 @@ else:
 st.markdown("---")
 
 with st.spinner("Loading real market data and running narrative engine… (~10–20s first time, instant on cache)"):
-    df_4h_raw, df_1h_raw, df_15m_raw, result = run_engine_cached(asset)
+    try:
+        df_4h_raw, df_1h_raw, df_15m_raw, result = run_engine_cached(asset)
+    except Exception as e:
+        st.error(f"Engine error for {asset}: {e}")
+        st.stop()
 
 if df_4h_raw is None or df_15m_raw is None:
     st.warning(f"No data available for {asset}. Try a different asset or reduce lookback days.")
