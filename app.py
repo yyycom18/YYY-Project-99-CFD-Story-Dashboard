@@ -32,7 +32,8 @@ FULL_BARS_15M = 4000  # default history for engine and full-data operations
 @st.cache_data(show_spinner=False)
 def load_data(asset: str, bars_15m: int = FULL_BARS_15M):
     """Cache raw data fetching. Returns dict with '4H','1H','15M' DataFrames."""
-    data_raw = fetch_all_timeframes(asset, bars_15m=bars_15m)
+    # fetch_all_timeframes expects parameter name `lookback_days`
+    data_raw = fetch_all_timeframes(asset, lookback_days=bars_15m)
     return data_raw
 
 
