@@ -296,6 +296,26 @@ with primary_cols[2]:
     stage_val = _NARRATIVE_LABELS.get(int(vn), str(vn)) if vn != "-" else vn
     st.metric("📖 Narrative Stage", stage_val, help="Story position (0=Env → 5=Resolution)")
 
+# ----- Market Bias display (new) -----
+def _bias_text(val: int) -> str:
+    if val == 1:
+        return "Up Bias"
+    if val == -1:
+        return "Down Bias"
+    return "Range"
+
+# Last-known bias values from engine result
+vb4_series = result.get("bias_4h")
+vb1_series = result.get("bias_1h")
+vb4 = _last_scalar(vb4_series)
+vb1 = _last_scalar(vb1_series)
+
+bias_cols = st.columns(2)
+with bias_cols[0]:
+    st.metric("🔺 4H Bias", _bias_text(vb4), help="Market lean on 4H (Up/Down/Range)")
+with bias_cols[1]:
+    st.metric("🔺 1H Bias", _bias_text(vb1), help="Market lean on 1H (Up/Down/Range)")
+
 # Secondary: Zone Level, Boundary Type, R:R, Deployment Trigger
 with st.expander("🔎 Details: Zone Level, Boundary Type, R:R, Deployment", expanded=False):
     sec_cols = st.columns(4)

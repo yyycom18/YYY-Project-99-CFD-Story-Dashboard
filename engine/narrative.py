@@ -26,6 +26,7 @@ from .structure import (
     is_structure_break_down,
 )
 from .fib_logic import active_retracement_boundary
+from .market_bias import compute_market_bias
 
 MIN_RR = 1.0
 MIN_RR_REWARD = 1.3
@@ -335,7 +336,34 @@ def run_narrative_engine(
             else (False, None)
         )
         deployment_triggers.append(valid)
-        narrative_stages.append(_narrative_stage_from_aligned(st_4h, st_1h, z))
+        # Compute market bias for 4H and 1H using precomputed swing series
+        bias_4h = compute_market_bias(df_4h, i_4h, swing_highs=swing_highs_4h, swing_lows=swing_lows_4h)
+        bias_1h = compute_market_bias(df_1h, i_1h, swing_highs=swing_highs_1h, swing_lows=swing_lows_1h)
+        # New narrative logic (bias + confirmation model)
+        if st_4h == 0 and st_1h == 0:
+            if bias_4h != 0:
+                ns_val = 1
+            else:
+                ns_val = 0
+        elif z >= 2:
+            ns_val = 2
+        elif st_4h != 0 and st_1h != 0 and (st_4h == st_1h):
+            ns_val = 3
+        elif bias_4h != 0:
+            ns_val = 1
+        else:
+            ns_val = 0
+        narrative_stages.append(ns_val)
+        # store bias series
+        # ensure lists aligned
+        # bias arrays appended per 15m bar
+        # (note: bias_1h may change more frequently, but we align by 15m map)
+        # We'll collect biases for output below
+        if "bias_4h_list" not in locals():
+            bias_4h_list = []
+            bias_1h_list = []
+        bias_4h_list.append(bias_4h)
+        bias_1h_list.append(bias_1h)
     opportunities: List[Dict[str, Any]] = []
     return {
         "asset": asset,
@@ -350,5 +378,8 @@ def run_narrative_engine(
         "narrative_stage": narrative_stages,
         "stage_4h_aligned": stage_4h_aligned,
         "stage_1h_aligned": stage_1h_aligned,
+        # bias series aligned to 15M index (values: -1,0,+1)
+        "bias_4h": pd.Series(bias_4h_list if 'bias_4h_list' in locals() else [], index=df_15m.index),
+        "bias_1h": pd.Series(bias_1h_list if 'bias_1h_list' in locals() else [], index=df_15m.index),
         "opportunities": opportunities,
     }
