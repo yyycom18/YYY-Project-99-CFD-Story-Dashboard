@@ -103,6 +103,7 @@ lookback_days = st.sidebar.slider(
 max_assets_default = 1
 max_assets_upper = min(8, max(1, len(SYMBOL_MAP)))
 scan_limit = st.sidebar.slider("Max assets to scan", 1, max_assets_upper, max_assets_default)
+show_swing_markers = st.sidebar.checkbox("Show swing markers", value=False, help="Toggle plotting of swing high/low markers on charts (visual only).")
 
 # ----- Shared label helpers -----
 _STAGE_LABELS = {-1: "Downside", 0: "Neutral", 1: "Upside"}
@@ -490,7 +491,7 @@ df_1h_viz = convert_to_HKT(df_1h_raw_slice)
 df_15m_viz = convert_to_HKT(df_15m_raw_slice)
 
 try:
-    fig = build_three_panel_figure(df_15m_viz, df_1h_viz, df_4h_viz, result)
+    fig = build_three_panel_figure(df_15m_viz, df_1h_viz, df_4h_viz, result, show_trend=show_swing_markers)
     st.plotly_chart(fig, use_container_width=True)
 except Exception as e:
     st.error("Chart rendering failed.")

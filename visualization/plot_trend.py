@@ -42,7 +42,7 @@ def plot_trend(
     if not viz_data:
         return
     
-    # Add swing markers
+    # Add swing markers (visual only) when requested
     if show_trend:
         add_swing_markers(
             fig,
