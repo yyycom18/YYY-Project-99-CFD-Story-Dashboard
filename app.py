@@ -26,10 +26,23 @@ st.set_page_config(
 )
 
 
-@st.cache_data(ttl=300)
-def _cached_fetch_and_run(asset: str, lookback_days: int):
-    """Fetch real market data and run narrative engine. Cached for 5 min."""
-    data_raw = fetch_all_timeframes(asset, lookback_days=lookback_days)
+FULL_BARS_15M = 4000  # default history for engine and full-data operations
+
+
+@st.cache_data(show_spinner=False)
+def load_data(asset: str, bars_15m: int = FULL_BARS_15M):
+    """Cache raw data fetching. Returns dict with '4H','1H','15M' DataFrames."""
+    data_raw = fetch_all_timeframes(asset, bars_15m=bars_15m)
+    return data_raw
+
+
+@st.cache_data(show_spinner=False)
+def run_engine_cached(asset: str, bars_15m: int = FULL_BARS_15M):
+    """
+    Run narrative engine on the full cached dataset. Cache keyed by asset+bars_15m.
+    Returns: df_4h_raw, df_1h_raw, df_15m_raw, result
+    """
+    data_raw = load_data(asset, bars_15m=bars_15m)
     if not data_raw or "15M" not in data_raw:
         return None, None, None, None
     df_4h_raw = data_raw["4H"]
@@ -37,6 +50,17 @@ def _cached_fetch_and_run(asset: str, lookback_days: int):
     df_15m_raw = data_raw["15M"]
     result = run_narrative_engine(df_4h_raw, df_1h_raw, df_15m_raw, asset)
     return df_4h_raw, df_1h_raw, df_15m_raw, result
+
+
+def slice_df_by_days(df: pd.DataFrame, days: int, tf: str) -> pd.DataFrame:
+    """Return a tail slice of df corresponding to approx `days` for timeframe tf.
+    tf: one of '15M','1H','4H'. Uses simple bars-per-day heuristics (15M=96,1H=24,4H=6).
+    """
+    if df is None or df.empty:
+        return df
+    bars_per_day = {"15M": 24 * 4, "1H": 24, "4H": 6}.get(tf, 24)
+    n = max(1, int(days * bars_per_day))
+    return df.tail(n)
 
 
 st.title("CFD Story Dashboard")
@@ -52,7 +76,7 @@ lookback_days = st.sidebar.slider(
     30,
     15,
     1,
-    help="Fetch last N days of 15M data for engine and display",
+    help="Display last N days on charts and tables. Engine uses full cached history; changing this will not re-run the engine.",
 )
 
 # ----- Shared label helpers -----
@@ -185,8 +209,8 @@ scanner_rows = []
 
 with st.spinner("Scanning story state across all assets…"):
     for sym in SYMBOL_MAP.keys():
-        # Each asset fetches its own data and runs its own narrative engine
-        df4, df1, df15, res = _cached_fetch_and_run(sym, lookback_days)
+        # Each asset fetches its own data (cached) and runs its cached narrative engine
+        df4, df1, df15, res = run_engine_cached(sym)
         if df4 is None or df15 is None or res is None:
             continue
 
@@ -224,7 +248,7 @@ else:
 st.markdown("---")
 
 with st.spinner("Loading real market data and running narrative engine… (~10–20s first time, instant on cache)"):
-    df_4h_raw, df_1h_raw, df_15m_raw, result = _cached_fetch_and_run(asset, lookback_days)
+    df_4h_raw, df_1h_raw, df_15m_raw, result = run_engine_cached(asset)
 
 if df_4h_raw is None or df_15m_raw is None:
     st.warning(f"No data available for {asset}. Try a different asset or reduce lookback days.")
@@ -291,7 +315,9 @@ st.markdown("---")
 # ----- Weekly Opportunity Table -----
 st.subheader("Weekly Opportunity Log – Last 4 Weeks")
 try:
-    rows = build_opportunity_rows(result, df_15m_raw, lookback_weeks=4)
+    # Slice 15M raw for table rendering to avoid reprocessing entire history
+    df_15m_raw_slice = slice_df_by_days(df_15m_raw, lookback_days, "15M")
+    rows = build_opportunity_rows(result, df_15m_raw_slice, lookback_weeks=4)
     render_opportunity_table(rows)
 except Exception as e:
     st.error("Opportunity table failed to render.")
@@ -301,10 +327,15 @@ st.markdown("---")
 # ----- Three-panel chart: Real market data (HKT viz) -----
 st.subheader(f"{asset} – 4H Season / 1H Wind / 15M Deployment")
 
+# Slice raw data for visualization only (engine used full-history cached results)
+df_15m_raw_slice = slice_df_by_days(df_15m_raw, lookback_days, "15M")
+df_1h_raw_slice = slice_df_by_days(df_1h_raw, lookback_days, "1H")
+df_4h_raw_slice = slice_df_by_days(df_4h_raw, lookback_days, "4H")
+
 # Convert to HKT for visualization only
-df_4h_viz = convert_to_HKT(df_4h_raw)
-df_1h_viz = convert_to_HKT(df_1h_raw)
-df_15m_viz = convert_to_HKT(df_15m_raw)
+df_4h_viz = convert_to_HKT(df_4h_raw_slice)
+df_1h_viz = convert_to_HKT(df_1h_raw_slice)
+df_15m_viz = convert_to_HKT(df_15m_raw_slice)
 
 try:
     fig = build_three_panel_figure(df_15m_viz, df_1h_viz, df_4h_viz, result)
