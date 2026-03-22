@@ -97,6 +97,12 @@ lookback_days = st.sidebar.slider(
     help="Display last N days on charts and tables. Engine uses full cached history; changing this will not re-run the engine.",
 )
 
+# Scanner limits: avoid running engine for all assets at once (performance)
+# Default max 3 assets; user can adjust up to min(8, total assets)
+max_assets_default = 3
+max_assets_upper = min(8, max(1, len(SYMBOL_MAP)))
+scan_limit = st.sidebar.slider("Max assets to scan", 1, max_assets_upper, max_assets_default)
+
 # ----- Shared label helpers -----
 _STAGE_LABELS = {-1: "Downside", 0: "Neutral", 1: "Upside"}
 _NARRATIVE_LABELS = {
@@ -226,7 +232,10 @@ st.subheader("Story Scanner")
 scanner_rows = []
 
 with st.spinner("Scanning story state across all assets…"):
-    for sym in SYMBOL_MAP.keys():
+    for i, sym in enumerate(SYMBOL_MAP.keys()):
+        if i >= scan_limit:
+            break
+        st.write(f"Scanning {sym}...")
         # Each asset fetches its own data (cached) and runs its cached narrative engine
         # Debug: inspect cached raw data before engine
         try:
