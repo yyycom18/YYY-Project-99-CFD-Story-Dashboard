@@ -27,6 +27,7 @@ st.set_page_config(
 
 
 FULL_BARS_15M = 4000  # default history for engine and full-data operations
+DEBUG_MODE = False
 
 
 @st.cache_data(show_spinner=False)
@@ -99,7 +100,7 @@ lookback_days = st.sidebar.slider(
 
 # Scanner limits: avoid running engine for all assets at once (performance)
 # Default max 3 assets; user can adjust up to min(8, total assets)
-max_assets_default = 3
+max_assets_default = 1
 max_assets_upper = min(8, max(1, len(SYMBOL_MAP)))
 scan_limit = st.sidebar.slider("Max assets to scan", 1, max_assets_upper, max_assets_default)
 
@@ -243,12 +244,15 @@ with st.spinner("Scanning story state across all assetsâ€¦"):
         except Exception as e:
             st.error(f"Data load error for {sym}: {e}")
             continue
-        st.write(f"DEBUG: data_raw keys for {sym}:", list(data_raw_dbg.keys()) if data_raw_dbg else "missing")
+        if DEBUG_MODE:
+            st.write(f"DEBUG: data_raw keys for {sym}:", list(data_raw_dbg.keys()) if data_raw_dbg else "missing")
         for tf in ["15M", "1H", "4H"]:
             if data_raw_dbg and tf in data_raw_dbg and isinstance(data_raw_dbg[tf], pd.DataFrame):
-                st.write(f"DEBUG {sym} {tf} shape:", data_raw_dbg[tf].shape)
+                if DEBUG_MODE:
+                    st.write(f"DEBUG {sym} {tf} shape:", data_raw_dbg[tf].shape)
             else:
-                st.write(f"DEBUG {sym} {tf} missing or not a DataFrame")
+                if DEBUG_MODE:
+                    st.write(f"DEBUG {sym} {tf} missing or not a DataFrame")
 
         try:
             df4, df1, df15, res = run_engine_cached(sym)
@@ -300,15 +304,18 @@ with st.spinner("Loading real market data and running narrative engineâ€¦ (~10â€
     except Exception as e:
         st.error(f"Data load error for {asset}: {e}")
         st.stop()
-    st.write("DEBUG: data_raw keys:", list(data_raw_main.keys()) if data_raw_main else "missing")
+    if DEBUG_MODE:
+        st.write("DEBUG: data_raw keys:", list(data_raw_main.keys()) if data_raw_main else "missing")
     if data_raw_main:
         for tf in ["15M", "1H", "4H"]:
             df_dbg = data_raw_main.get(tf)
             if isinstance(df_dbg, pd.DataFrame):
-                st.write(f"DEBUG {tf} shape:", df_dbg.shape)
-                st.write(f"DEBUG {tf} empty?", df_dbg.empty)
+                if DEBUG_MODE:
+                    st.write(f"DEBUG {tf} shape:", df_dbg.shape)
+                    st.write(f"DEBUG {tf} empty?", df_dbg.empty)
             else:
-                st.write(f"DEBUG {tf} missing or invalid")
+                if DEBUG_MODE:
+                    st.write(f"DEBUG {tf} missing or invalid")
 
     try:
         df_4h_raw, df_1h_raw, df_15m_raw, result = run_engine_cached(asset)
@@ -317,16 +324,20 @@ with st.spinner("Loading real market data and running narrative engineâ€¦ (~10â€
         st.stop()
 
     # Debug engine output
-    st.write("DEBUG result keys:", list(result.keys()) if isinstance(result, dict) else "result missing")
+    if DEBUG_MODE:
+        st.write("DEBUG result keys:", list(result.keys()) if isinstance(result, dict) else "result missing")
     for key in ["stage_4h", "stage_1h", "bias_4h", "bias_1h"]:
         val = result.get(key) if isinstance(result, dict) else None
         if val is None:
-            st.write(f"DEBUG {key} = None")
+            if DEBUG_MODE:
+                st.write(f"DEBUG {key} = None")
         else:
             try:
-                st.write(f"DEBUG {key} length:", len(val))
+                if DEBUG_MODE:
+                    st.write(f"DEBUG {key} length:", len(val))
             except Exception:
-                st.write(f"DEBUG {key} present (non-iterable)")
+                if DEBUG_MODE:
+                    st.write(f"DEBUG {key} present (non-iterable)")
 
     def last_val(series):
         try:
@@ -340,9 +351,10 @@ with st.spinner("Loading real market data and running narrative engineâ€¦ (~10â€
         except Exception:
             return None
 
-    st.write("DEBUG Latest values:")
-    st.write("stage_4h:", last_val(result.get("stage_4h") if isinstance(result, dict) else None))
-    st.write("bias_4h:", last_val(result.get("bias_4h") if isinstance(result, dict) else None))
+    if DEBUG_MODE:
+        st.write("DEBUG Latest values:")
+        st.write("stage_4h:", last_val(result.get("stage_4h") if isinstance(result, dict) else None))
+        st.write("bias_4h:", last_val(result.get("bias_4h") if isinstance(result, dict) else None))
 
 if df_4h_raw is None or df_15m_raw is None:
     st.warning(f"No data available for {asset}. Try a different asset or reduce lookback days.")
