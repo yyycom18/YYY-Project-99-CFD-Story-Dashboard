@@ -184,6 +184,11 @@ def run_narrative_engine(
             "stage_1h_aligned": [],
             "opportunities": [],
         }
+    # Safety: if any timeframe is empty, return empty dict so caller can handle
+    if df_4h is None or df_1h is None or df_15m is None:
+        return {}
+    if df_4h.empty or df_1h.empty or df_15m.empty:
+        return {}
 
     # Precompute swing series once per dataframe (avoids O(n²) repeated detection)
     swing_highs_4h = detect_swing_highs(df_4h)
