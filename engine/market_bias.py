@@ -49,7 +49,8 @@ def compute_market_bias(df: pd.DataFrame, i: int, swing_highs: Optional[pd.Serie
         if swing_lows is None:
             swing_lows = detect_swing_lows(df)
     except Exception:
-        # If detection fails, return range
+        # If detection fails, log debug and return range
+        print("DEBUG market_bias: swing detection failed")
         return 0
 
     # find integer positions of swings strictly before i
@@ -61,6 +62,7 @@ def compute_market_bias(df: pd.DataFrame, i: int, swing_highs: Optional[pd.Serie
 
     # Need at least two highs and two lows
     if len(high_pos) < 2 or len(low_pos) < 2:
+        print("DEBUG market_bias: not enough swings (highs, lows):", len(high_pos), len(low_pos))
         return 0
 
     # Get last two high values and last two low values
@@ -94,5 +96,5 @@ def compute_market_bias(df: pd.DataFrame, i: int, swing_highs: Optional[pd.Serie
         return 1
     if highs_decreasing and lows_decreasing:
         return -1
-    return 0
+    return 0  # explicit fallback
 
