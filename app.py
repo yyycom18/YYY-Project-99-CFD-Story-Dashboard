@@ -450,6 +450,32 @@ except Exception as e:
     st.exception(e)
 st.markdown("---")
 
+# ----- Market Story Guide (explanatory, collapsible) -----
+with st.expander("📘 Market Story Guide", expanded=False):
+    st.markdown("**⚠️ This dashboard provides context, not signals.**")
+    st.markdown("")
+    st.markdown("### 🔍 How to Read This Dashboard")
+    st.markdown("")
+    st.markdown("**1. Market State**")
+    st.markdown("- **4H Season** — higher timeframe direction")
+    st.markdown("- **1H Wind** — short-term momentum / structure")
+    st.markdown("- **Narrative Stage** — current market phase (Environment → Deployment)")
+    st.markdown("")
+    st.markdown("**2. Market Bias**")
+    st.markdown("- **Up Bias** — bullish expectation")
+    st.markdown("- **Down Bias** — bearish expectation")
+    st.markdown("- **Range** — no clear directional bias")
+    st.markdown("")
+    st.markdown("**3. Decision Logic**")
+    st.markdown("- If Stage = Trend AND Bias aligns → watch for opportunities")
+    st.markdown("- If Stage = Environment → avoid trading (context only)")
+    st.markdown("- If Zone Level ≥ 2 → potential reaction / deployment zone")
+    st.markdown("")
+    st.markdown("**4. Purpose of Dashboard**")
+    st.markdown("- This tool is for opportunity filtering and narrative context")
+    st.markdown("- NOT for direct entry execution; confirm on TradingView before trading")
+    st.markdown("")
+
 # ----- Three-panel chart: Real market data (HKT viz) -----
 st.subheader(f"{asset} – 4H Season / 1H Wind / 15M Deployment")
 
