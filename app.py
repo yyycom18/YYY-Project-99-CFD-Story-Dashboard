@@ -82,165 +82,7 @@ def slice_df_by_days(df: pd.DataFrame, days: int, tf: str) -> pd.DataFrame:
     return df.tail(n)
 
 
-st.title("CFD Story Dashboard")
-st.caption("Narrative Story Monitor — Real market data via yfinance. 4H Season → 1H Wind → 15M Deployment")
-
-
-def render_story_guide():
-    st.title("Story Guide — How to read the CFD Narrative Dashboard")
-    st.info("This dashboard provides context, not signals.")
-    with st.expander("SECTION 1 — Core Framework", expanded=True):
-        st.subheader("Core Framework")
-        st.markdown("- **4H Season** → higher timeframe direction (context).")
-        st.markdown("- **1H Wind** → short-term structure / momentum.")
-        st.markdown("- **Narrative Stage** → market phase (Environment / Trend / Deployment).")
-        st.markdown("")
-        st.markdown("These descriptors are descriptive (what IS happening), not predictive.")
-    with st.expander("SECTION 2 — Bias", expanded=False):
-        st.subheader("Bias")
-        st.markdown("- **Bias** = directional expectation (NOT current state).")
-        st.markdown("- **Up Bias** → bullish expectation.")
-        st.markdown("- **Down Bias** → bearish expectation.")
-        st.markdown("- **Range** → no confirmed directional edge.")
-        st.markdown("")
-        st.markdown("**Note:** Bias != Season/Wind. Bias is a decision layer, not a structure layer.")
-    with st.expander("SECTION 3 — Zone & Deployment Logic", expanded=False):
-        st.subheader("Zone & Deployment Logic")
-        st.markdown("- **Zone Level:**")
-        st.markdown("  - 0–1 → weak / no institutional presence")
-        st.markdown("  - 2 → meaningful reaction zone")
-        st.markdown("  - 3+ → strong institutional zone")
-        st.markdown("")
-        st.markdown("- **Boundary Type:** 0.5 / 0.618 / 0.764 / 0.88 OR 'Zone-Dominant'")
-        st.markdown("  - Boundary represents a reaction area, not an entry trigger.")
-        st.markdown("")
-        st.markdown("- **R:R:** Appears only when a valid deployment setup exists. Must meet minimum 1:1.3.")
-        st.markdown("- **Deployment Trigger:** YES → conditions aligned for potential execution. NO → context only.")
-    with st.expander("SECTION 4 — Decision Logic", expanded=False):
-        st.subheader("Decision Logic")
-        st.markdown("- If Stage = Trend AND Bias aligns → watch for opportunity.")
-        st.markdown("- If Stage = Deployment → potential execution phase.")
-        st.markdown("- If Bias = Range → avoid directional conviction.")
-        st.markdown("- Zone Level ≥ 2 → reaction / deployment interest.")
-    with st.expander("SECTION 5 — System Philosophy", expanded=False):
-        st.subheader("System Philosophy")
-        st.markdown("- This dashboard provides CONTEXT, not signals.")
-        st.markdown("- It filters opportunities; it does NOT execute trades.")
-        st.markdown("- Final decision must be confirmed on TradingView.")
-
-
-def render_scanner():
-    # Scanner limits slider in scanner page
-    max_assets_default = 1
-    max_assets_upper = min(8, max(1, len(SYMBOL_MAP)))
-    scan_limit_local = st.sidebar.slider("Max assets to scan", 1, max_assets_upper, max_assets_default)
-    st.subheader("Market Scanner")
-    scanner_rows_local = []
-    with st.spinner("Scanning story state across selected assets…"):
-        for i, sym in enumerate(SYMBOL_MAP.keys()):
-            if i >= scan_limit_local:
-                break
-            st.write(f"Scanning {sym}...")
-            try:
-                data_raw_dbg = load_data(sym)
-            except Exception as e:
-                st.error(f"Data load error for {sym}: {e}")
-                continue
-            if DEBUG_MODE:
-                st.write(f"DEBUG: data_raw keys for {sym}:", list(data_raw_dbg.keys()) if data_raw_dbg else "missing")
-            try:
-                df4, df1, df15, res = run_engine_cached(sym)
-            except Exception as e:
-                st.error(f"Engine error for {sym}: {e}")
-                continue
-            if df4 is None or df15 is None or res is None:
-                st.warning(f"No data for {sym}; skipping.")
-                continue
-            s4 = _last_scalar(res.get("stage_4h"))
-            s1 = _last_scalar(res.get("stage_1h"))
-            ns = _last_scalar(res.get("narrative_stage"))
-            season_text = _season_text(s4) if s4 != "-" else "N/A"
-            wind_text = _season_text(s1) if s1 != "-" else "N/A"
-            stage_text = _narrative_text(ns) if ns != "-" else "N/A"
-            regime = _compute_market_regime(df4)
-            scanner_rows_local.append({
-                "Asset": sym,
-                "Market Regime": regime,
-                "Season (4H)": season_text,
-                "Wind (1H)": wind_text,
-                "Stage (Narrative)": stage_text,
-            })
-    if scanner_rows_local:
-        scanner_df_local = pd.DataFrame(scanner_rows_local)
-        styled_local = (
-            scanner_df_local.style.applymap(_regime_color, subset=["Market Regime"])
-            .applymap(_season_color, subset=["Season (4H)", "Wind (1H)"])
-            .applymap(_stage_color, subset=["Stage (Narrative)"])
-        )
-        st.dataframe(styled_local, use_container_width=True)
-    else:
-        st.caption("No assets available for Story Scanner (data fetch may have failed).")
-
-
-def render_asset_dashboard():
-    # Sidebar configuration for asset page
-    # allow assigning to module-level names used by the main rendering code below
-    global asset, lookback_days, show_swing_markers, df_4h_raw, df_1h_raw, df_15m_raw, result
-    asset_local = st.sidebar.selectbox("Asset", list(SYMBOL_MAP.keys()), index=0)
-    lookback_days_local = st.sidebar.slider("Lookback Days", 5, 30, 15, 1, help="Display last N days on charts and tables. Engine uses full cached history; changing this will not re-run the engine.")
-    show_swing_markers_local = st.sidebar.checkbox("Show swing markers", value=False, help="Toggle plotting of swing high/low markers on charts (visual only).")
-    # Main asset content (reuse existing logic but local variables)
-    with st.spinner("Loading real market data and running narrative engine… (~10–20s first time, instant on cache)"):
-        try:
-            data_raw_main = load_data(asset_local)
-        except Exception as e:
-            st.error(f"Data load error for {asset_local}: {e}")
-            st.stop()
-        if DEBUG_MODE:
-            st.write("DEBUG: data_raw keys:", list(data_raw_main.keys()) if data_raw_main else "missing")
-        try:
-            df_4h_raw, df_1h_raw, df_15m_raw, result = run_engine_cached(asset_local)
-        except Exception as e:
-            st.error(f"Engine error for {asset_local}: {e}")
-            st.stop()
-        if DEBUG_MODE:
-            st.write("DEBUG result keys:", list(result.keys()) if isinstance(result, dict) else "result missing")
-    # Continue with the rest of asset rendering (reuse previous code)
-    # Expose variables to the outer scope by assigning back to global names used below
-    global asset, lookback_days, show_swing_markers, df_4h_raw, df_1h_raw, df_15m_raw, result
-    asset = asset_local
-    lookback_days = lookback_days_local
-    show_swing_markers = show_swing_markers_local
-
-# Page routing
-page = st.sidebar.radio("Navigation", ["🧭 Story Guide", "📊 Market Scanner", "🎯 Asset Story"], index=0)
-if page == "🧭 Story Guide":
-    render_story_guide()
-elif page == "📊 Market Scanner":
-    render_scanner()
-elif page == "🎯 Asset Story":
-    render_asset_dashboard()
-
-# After routing, if Asset Story was selected we continue rendering below (existing code expects globals)
-
-# Lookback days: chart display and engine history
-lookback_days = st.sidebar.slider(
-    "Lookback Days",
-    5,
-    30,
-    15,
-    1,
-    help="Display last N days on charts and tables. Engine uses full cached history; changing this will not re-run the engine.",
-)
-
-# Scanner limits: avoid running engine for all assets at once (performance)
-# Default max 3 assets; user can adjust up to min(8, total assets)
-max_assets_default = 1
-max_assets_upper = min(8, max(1, len(SYMBOL_MAP)))
-scan_limit = st.sidebar.slider("Max assets to scan", 1, max_assets_upper, max_assets_default)
-show_swing_markers = st.sidebar.checkbox("Show swing markers", value=False, help="Toggle plotting of swing high/low markers on charts (visual only).")
-
-# ----- Shared label helpers -----
+# ----- Shared label helpers (must be defined before render_* functions) -----
 _STAGE_LABELS = {-1: "Downside", 0: "Neutral", 1: "Upside"}
 _NARRATIVE_LABELS = {
     0: "Environment",
@@ -343,7 +185,6 @@ def _compute_market_regime(df_4h_raw: pd.DataFrame) -> str:
     if mkt_range <= 0:
         return "Compression"
 
-    # ATR(14) – compute true range then rolling mean.
     hl = (df["High"] - df["Low"]) if "High" in df.columns else (df["high"] - df["low"])
     close_col = "Close" if "Close" in df.columns else "close"
     h_cp = (df["High"] - df[close_col].shift()).abs() if "High" in df.columns else (df["high"] - df[close_col].shift()).abs()
@@ -364,180 +205,6 @@ def _compute_market_regime(df_4h_raw: pd.DataFrame) -> str:
     return "Wide Range"
 
 
-# ----- Story Scanner: multi-asset narrative overview -----
-st.subheader("Story Scanner")
-scanner_rows = []
-
-with st.spinner("Scanning story state across all assets…"):
-    for i, sym in enumerate(SYMBOL_MAP.keys()):
-        if i >= scan_limit:
-            break
-        st.write(f"Scanning {sym}...")
-        # Each asset fetches its own data (cached) and runs its cached narrative engine
-        # Debug: inspect cached raw data before engine
-        try:
-            data_raw_dbg = load_data(sym)
-        except Exception as e:
-            st.error(f"Data load error for {sym}: {e}")
-            continue
-        if DEBUG_MODE:
-            st.write(f"DEBUG: data_raw keys for {sym}:", list(data_raw_dbg.keys()) if data_raw_dbg else "missing")
-        for tf in ["15M", "1H", "4H"]:
-            if data_raw_dbg and tf in data_raw_dbg and isinstance(data_raw_dbg[tf], pd.DataFrame):
-                if DEBUG_MODE:
-                    st.write(f"DEBUG {sym} {tf} shape:", data_raw_dbg[tf].shape)
-            else:
-                if DEBUG_MODE:
-                    st.write(f"DEBUG {sym} {tf} missing or not a DataFrame")
-
-        try:
-            df4, df1, df15, res = run_engine_cached(sym)
-        except Exception as e:
-            st.error(f"Engine error for {sym}: {e}")
-            continue
-
-        if df4 is None or df15 is None or res is None:
-            st.warning(f"No data for {sym}; skipping.")
-            continue
-
-        s4 = _last_scalar(res.get("stage_4h"))
-        s1 = _last_scalar(res.get("stage_1h"))
-        ns = _last_scalar(res.get("narrative_stage"))
-
-        season_text = _season_text(s4) if s4 != "-" else "N/A"
-        wind_text = _season_text(s1) if s1 != "-" else "N/A"
-        stage_text = _narrative_text(ns) if ns != "-" else "N/A"
-
-        regime = _compute_market_regime(df4)
-
-        scanner_rows.append(
-            {
-                "Asset": sym,
-                "Market Regime": regime,
-                "Season (4H)": season_text,
-                "Wind (1H)": wind_text,
-                "Stage (Narrative)": stage_text,
-            }
-        )
-
-if scanner_rows:
-    scanner_df = pd.DataFrame(scanner_rows)
-    styled = (
-        scanner_df.style.applymap(_regime_color, subset=["Market Regime"])
-        .applymap(_season_color, subset=["Season (4H)", "Wind (1H)"])
-        .applymap(_stage_color, subset=["Stage (Narrative)"])
-    )
-    st.dataframe(styled, use_container_width=True)
-else:
-    st.caption("No assets available for Story Scanner (data fetch may have failed).")
-
-st.markdown("---")
-
-with st.spinner("Loading real market data and running narrative engine… (~10–20s first time, instant on cache)"):
-    # Debug: inspect raw data fetched
-    try:
-        data_raw_main = load_data(asset)
-    except Exception as e:
-        st.error(f"Data load error for {asset}: {e}")
-        st.stop()
-    if DEBUG_MODE:
-        st.write("DEBUG: data_raw keys:", list(data_raw_main.keys()) if data_raw_main else "missing")
-    if data_raw_main:
-        for tf in ["15M", "1H", "4H"]:
-            df_dbg = data_raw_main.get(tf)
-            if isinstance(df_dbg, pd.DataFrame):
-                if DEBUG_MODE:
-                    st.write(f"DEBUG {tf} shape:", df_dbg.shape)
-                    st.write(f"DEBUG {tf} empty?", df_dbg.empty)
-            else:
-                if DEBUG_MODE:
-                    st.write(f"DEBUG {tf} missing or invalid")
-
-    try:
-        df_4h_raw, df_1h_raw, df_15m_raw, result = run_engine_cached(asset)
-    except Exception as e:
-        st.error(f"Engine error for {asset}: {e}")
-        st.stop()
-
-    # Debug engine output
-    if DEBUG_MODE:
-        st.write("DEBUG result keys:", list(result.keys()) if isinstance(result, dict) else "result missing")
-    for key in ["stage_4h", "stage_1h", "bias_4h", "bias_1h"]:
-        val = result.get(key) if isinstance(result, dict) else None
-        if val is None:
-            if DEBUG_MODE:
-                st.write(f"DEBUG {key} = None")
-        else:
-            try:
-                if DEBUG_MODE:
-                    st.write(f"DEBUG {key} length:", len(val))
-            except Exception:
-                if DEBUG_MODE:
-                    st.write(f"DEBUG {key} present (non-iterable)")
-
-    def last_val(series):
-        try:
-            if series is None:
-                return None
-            if hasattr(series, "iloc"):
-                return series.iloc[-1]
-            if isinstance(series, list):
-                return series[-1] if len(series) else None
-            return series
-        except Exception:
-            return None
-
-    if DEBUG_MODE:
-        st.write("DEBUG Latest values:")
-        st.write("stage_4h:", last_val(result.get("stage_4h") if isinstance(result, dict) else None))
-        st.write("bias_4h:", last_val(result.get("bias_4h") if isinstance(result, dict) else None))
-
-if df_4h_raw is None or df_15m_raw is None:
-    st.warning(f"No data available for {asset}. Try a different asset or reduce lookback days.")
-    st.stop()
-
-# ----- Engine result -----
-if result is None:
-    st.error("Narrative engine returned None.")
-    st.stop()
-
-with st.expander("Data & engine info", expanded=False):
-    st.write("Data sizes (bars):", {"4H": len(df_4h_raw), "1H": len(df_1h_raw), "15M": len(df_15m_raw)})
-    st.write("Engine result keys:", list(result.keys()))
-
-
-s4h = result.get("stage_4h")
-s1h = result.get("stage_1h")
-ns = result.get("narrative_stage")
-zl = result.get("zone_level")
-bt = result.get("boundary_type")
-rr_list = result.get("rr")
-dt_list = result.get("deployment_trigger")
-
-v4 = _last_scalar(s4h)
-v1 = _last_scalar(s1h)
-vn = _last_scalar(ns)
-vzl = _last_scalar(zl)
-vbt = _last_scalar(bt)
-vrr = _last_scalar(rr_list)
-vdt = _last_scalar(dt_list)
-
-st.subheader("Current Narrative State")
-st.caption("Story position: 4H Season → 1H Wind → Narrative Stage (Primary) | Zone & Deployment Details (Secondary)")
-
-# Primary: 4H Season, 1H Wind, Narrative Stage
-primary_cols = st.columns(3)
-with primary_cols[0]:
-    season_val = _STAGE_LABELS.get(int(v4), str(v4)) if v4 != "-" else v4
-    st.metric("🔵 4H Season", season_val, help="Higher timeframe trend direction (Upside/Neutral/Downside)")
-with primary_cols[1]:
-    wind_val = _STAGE_LABELS.get(int(v1), str(v1)) if v1 != "-" else v1
-    st.metric("💨 1H Wind", wind_val, help="Current structure within the season")
-with primary_cols[2]:
-    stage_val = _NARRATIVE_LABELS.get(int(vn), str(vn)) if vn != "-" else vn
-    st.metric("📖 Narrative Stage", stage_val, help="Story position (0=Env → 5=Resolution)")
-
-# ----- Market Bias display (new) -----
 def _bias_text(val: int) -> str:
     if val == 1:
         return "Up Bias"
@@ -545,92 +212,315 @@ def _bias_text(val: int) -> str:
         return "Down Bias"
     return "Range"
 
-# Last-known bias values from engine result
-vb4_series = result.get("bias_4h")
-vb1_series = result.get("bias_1h")
-vb4 = _last_scalar(vb4_series)
-vb1 = _last_scalar(vb1_series)
 
-bias_cols = st.columns(2)
-with bias_cols[0]:
-    st.metric("🔺 4H Bias", _bias_text(vb4), help="Market lean on 4H (Up/Down/Range)")
-with bias_cols[1]:
-    st.metric("🔺 1H Bias", _bias_text(vb1), help="Market lean on 1H (Up/Down/Range)")
+st.title("CFD Story Dashboard")
+st.caption("Narrative Story Monitor — Real market data via yfinance. 4H Season → 1H Wind → 15M Deployment")
 
-# Secondary: Zone Level, Boundary Type, R:R, Deployment Trigger
-with st.expander("🔎 Details: Zone Level, Boundary Type, R:R, Deployment", expanded=False):
-    sec_cols = st.columns(4)
-    with sec_cols[0]:
-        zone_val = str(int(vzl)) if isinstance(vzl, (int, float)) else vzl
-        st.metric("Zone Level", zone_val, help="1 = Momentum | 2 = Structural Break")
-    with sec_cols[1]:
-        st.metric("Boundary Type", str(vbt) if vbt != "-" else vbt, help="0.618 or Zone-Dominant")
-    with sec_cols[2]:
-        rr_display = f"{float(vrr):.2f}" if isinstance(vrr, (int, float)) else (vrr if vrr != "-" else "-")
-        st.metric("R:R", rr_display, help="Risk:Reward ratio for deployment (min 1:1.3)")
-    with sec_cols[3]:
-        dt_display = "Yes ✓" if vdt is True else ("No" if vdt is False else str(vdt))
-        st.metric("Deployment Trigger", dt_display, help="Ready to deploy?")
 
-st.markdown("---")
+def render_story_guide():
+    st.title("Story Guide — How to read the CFD Narrative Dashboard")
+    st.info("This dashboard provides context, not signals.")
+    with st.expander("SECTION 1 — Core Framework", expanded=True):
+        st.subheader("Core Framework")
+        st.markdown("- **4H Season** → higher timeframe direction (context).")
+        st.markdown("- **1H Wind** → short-term structure / momentum.")
+        st.markdown("- **Narrative Stage** → market phase (Environment / Trend / Deployment).")
+        st.markdown("")
+        st.markdown("These descriptors are descriptive (what IS happening), not predictive.")
+    with st.expander("SECTION 2 — Bias", expanded=False):
+        st.subheader("Bias")
+        st.markdown("- **Bias** = directional expectation (NOT current state).")
+        st.markdown("- **Up Bias** → bullish expectation.")
+        st.markdown("- **Down Bias** → bearish expectation.")
+        st.markdown("- **Range** → no confirmed directional edge.")
+        st.markdown("")
+        st.markdown("**Note:** Bias != Season/Wind. Bias is a decision layer, not a structure layer.")
+    with st.expander("SECTION 3 — Zone & Deployment Logic", expanded=False):
+        st.subheader("Zone & Deployment Logic")
+        st.markdown("- **Zone Level:**")
+        st.markdown("  - 0–1 → weak / no institutional presence")
+        st.markdown("  - 2 → meaningful reaction zone")
+        st.markdown("  - 3+ → strong institutional zone")
+        st.markdown("")
+        st.markdown("- **Boundary Type:** 0.5 / 0.618 / 0.764 / 0.88 OR 'Zone-Dominant'")
+        st.markdown("  - Boundary represents a reaction area, not an entry trigger.")
+        st.markdown("")
+        st.markdown("- **R:R:** Appears only when a valid deployment setup exists. Must meet minimum 1:1.3.")
+        st.markdown("- **Deployment Trigger:** YES → conditions aligned for potential execution. NO → context only.")
+    with st.expander("SECTION 4 — Decision Logic", expanded=False):
+        st.subheader("Decision Logic")
+        st.markdown("- If Stage = Trend AND Bias aligns → watch for opportunity.")
+        st.markdown("- If Stage = Deployment → potential execution phase.")
+        st.markdown("- If Bias = Range → avoid directional conviction.")
+        st.markdown("- Zone Level ≥ 2 → reaction / deployment interest.")
+    with st.expander("SECTION 5 — System Philosophy", expanded=False):
+        st.subheader("System Philosophy")
+        st.markdown("- This dashboard provides CONTEXT, not signals.")
+        st.markdown("- It filters opportunities; it does NOT execute trades.")
+        st.markdown("- Final decision must be confirmed on TradingView.")
 
-# ----- Weekly Opportunity Table -----
-st.subheader("Weekly Opportunity Log – Last 4 Weeks")
-try:
-    # Slice 15M raw for table rendering to avoid reprocessing entire history
+
+def render_scanner():
+    # Scanner limits slider in scanner page
+    max_assets_default = 1
+    max_assets_upper = min(8, max(1, len(SYMBOL_MAP)))
+    scan_limit_local = st.sidebar.slider("Max assets to scan", 1, max_assets_upper, max_assets_default)
+    st.subheader("Market Scanner")
+    scanner_rows_local = []
+    with st.spinner("Scanning story state across selected assets…"):
+        for i, sym in enumerate(SYMBOL_MAP.keys()):
+            if i >= scan_limit_local:
+                break
+            st.write(f"Scanning {sym}...")
+            try:
+                data_raw_dbg = load_data(sym)
+            except Exception as e:
+                st.error(f"Data load error for {sym}: {e}")
+                continue
+            if DEBUG_MODE:
+                st.write(f"DEBUG: data_raw keys for {sym}:", list(data_raw_dbg.keys()) if data_raw_dbg else "missing")
+                for tf in ["15M", "1H", "4H"]:
+                    if data_raw_dbg and tf in data_raw_dbg and isinstance(data_raw_dbg[tf], pd.DataFrame):
+                        st.write(f"DEBUG {sym} {tf} shape:", data_raw_dbg[tf].shape)
+                    else:
+                        st.write(f"DEBUG {sym} {tf} missing or not a DataFrame")
+            try:
+                df4, df1, df15, res = run_engine_cached(sym)
+            except Exception as e:
+                st.error(f"Engine error for {sym}: {e}")
+                continue
+            if df4 is None or df15 is None or res is None:
+                st.warning(f"No data for {sym}; skipping.")
+                continue
+            s4 = _last_scalar(res.get("stage_4h"))
+            s1 = _last_scalar(res.get("stage_1h"))
+            ns = _last_scalar(res.get("narrative_stage"))
+            season_text = _season_text(s4) if s4 != "-" else "N/A"
+            wind_text = _season_text(s1) if s1 != "-" else "N/A"
+            stage_text = _narrative_text(ns) if ns != "-" else "N/A"
+            regime = _compute_market_regime(df4)
+            scanner_rows_local.append({
+                "Asset": sym,
+                "Market Regime": regime,
+                "Season (4H)": season_text,
+                "Wind (1H)": wind_text,
+                "Stage (Narrative)": stage_text,
+            })
+    if scanner_rows_local:
+        scanner_df_local = pd.DataFrame(scanner_rows_local)
+        styled_local = (
+            scanner_df_local.style.applymap(_regime_color, subset=["Market Regime"])
+            .applymap(_season_color, subset=["Season (4H)", "Wind (1H)"])
+            .applymap(_stage_color, subset=["Stage (Narrative)"])
+        )
+        st.dataframe(styled_local, use_container_width=True)
+    else:
+        st.caption("No assets available for Story Scanner (data fetch may have failed).")
+
+
+def render_asset_dashboard():
+    asset = st.sidebar.selectbox("Asset", list(SYMBOL_MAP.keys()), index=0)
+    lookback_days = st.sidebar.slider(
+        "Lookback Days",
+        5,
+        30,
+        15,
+        1,
+        help="Display last N days on charts and tables. Engine uses full cached history; changing this will not re-run the engine.",
+    )
+    show_swing_markers = st.sidebar.checkbox(
+        "Show swing markers",
+        value=False,
+        help="Toggle plotting of swing high/low markers on charts (visual only).",
+    )
+
+    with st.spinner("Loading real market data and running narrative engine… (~10–20s first time, instant on cache)"):
+        try:
+            data_raw_main = load_data(asset)
+        except Exception as e:
+            st.error(f"Data load error for {asset}: {e}")
+            st.stop()
+        if DEBUG_MODE:
+            st.write("DEBUG: data_raw keys:", list(data_raw_main.keys()) if data_raw_main else "missing")
+        if data_raw_main:
+            for tf in ["15M", "1H", "4H"]:
+                df_dbg = data_raw_main.get(tf)
+                if isinstance(df_dbg, pd.DataFrame):
+                    if DEBUG_MODE:
+                        st.write(f"DEBUG {tf} shape:", df_dbg.shape)
+                        st.write(f"DEBUG {tf} empty?", df_dbg.empty)
+                else:
+                    if DEBUG_MODE:
+                        st.write(f"DEBUG {tf} missing or invalid")
+
+        try:
+            df_4h_raw, df_1h_raw, df_15m_raw, result = run_engine_cached(asset)
+        except Exception as e:
+            st.error(f"Engine error for {asset}: {e}")
+            st.stop()
+
+        if DEBUG_MODE:
+            st.write("DEBUG result keys:", list(result.keys()) if isinstance(result, dict) else "result missing")
+        for key in ["stage_4h", "stage_1h", "bias_4h", "bias_1h"]:
+            val = result.get(key) if isinstance(result, dict) else None
+            if val is None:
+                if DEBUG_MODE:
+                    st.write(f"DEBUG {key} = None")
+            else:
+                try:
+                    if DEBUG_MODE:
+                        st.write(f"DEBUG {key} length:", len(val))
+                except Exception:
+                    if DEBUG_MODE:
+                        st.write(f"DEBUG {key} present (non-iterable)")
+
+        def last_val(series):
+            try:
+                if series is None:
+                    return None
+                if hasattr(series, "iloc"):
+                    return series.iloc[-1]
+                if isinstance(series, list):
+                    return series[-1] if len(series) else None
+                return series
+            except Exception:
+                return None
+
+        if DEBUG_MODE:
+            st.write("DEBUG Latest values:")
+            st.write("stage_4h:", last_val(result.get("stage_4h") if isinstance(result, dict) else None))
+            st.write("bias_4h:", last_val(result.get("bias_4h") if isinstance(result, dict) else None))
+
+    if df_4h_raw is None or df_15m_raw is None:
+        st.warning(f"No data available for {asset}. Try a different asset or reduce lookback days.")
+        st.stop()
+
+    if result is None:
+        st.error("Narrative engine returned None.")
+        st.stop()
+
+    with st.expander("Data & engine info", expanded=False):
+        st.write("Data sizes (bars):", {"4H": len(df_4h_raw), "1H": len(df_1h_raw), "15M": len(df_15m_raw)})
+        st.write("Engine result keys:", list(result.keys()))
+
+    s4h = result.get("stage_4h")
+    s1h = result.get("stage_1h")
+    ns = result.get("narrative_stage")
+    zl = result.get("zone_level")
+    bt = result.get("boundary_type")
+    rr_list = result.get("rr")
+    dt_list = result.get("deployment_trigger")
+
+    v4 = _last_scalar(s4h)
+    v1 = _last_scalar(s1h)
+    vn = _last_scalar(ns)
+    vzl = _last_scalar(zl)
+    vbt = _last_scalar(bt)
+    vrr = _last_scalar(rr_list)
+    vdt = _last_scalar(dt_list)
+
+    st.subheader("Current Narrative State")
+    st.caption("Story position: 4H Season → 1H Wind → Narrative Stage (Primary) | Zone & Deployment Details (Secondary)")
+
+    primary_cols = st.columns(3)
+    with primary_cols[0]:
+        season_val = _STAGE_LABELS.get(int(v4), str(v4)) if v4 != "-" else v4
+        st.metric("🔵 4H Season", season_val, help="Higher timeframe trend direction (Upside/Neutral/Downside)")
+    with primary_cols[1]:
+        wind_val = _STAGE_LABELS.get(int(v1), str(v1)) if v1 != "-" else v1
+        st.metric("💨 1H Wind", wind_val, help="Current structure within the season")
+    with primary_cols[2]:
+        stage_val = _NARRATIVE_LABELS.get(int(vn), str(vn)) if vn != "-" else vn
+        st.metric("📖 Narrative Stage", stage_val, help="Story position (0=Env → 5=Resolution)")
+
+    vb4_series = result.get("bias_4h")
+    vb1_series = result.get("bias_1h")
+    vb4 = _last_scalar(vb4_series)
+    vb1 = _last_scalar(vb1_series)
+
+    bias_cols = st.columns(2)
+    with bias_cols[0]:
+        st.metric("🔺 4H Bias", _bias_text(vb4), help="Market lean on 4H (Up/Down/Range)")
+    with bias_cols[1]:
+        st.metric("🔺 1H Bias", _bias_text(vb1), help="Market lean on 1H (Up/Down/Range)")
+
+    with st.expander("🔎 Details: Zone Level, Boundary Type, R:R, Deployment", expanded=False):
+        sec_cols = st.columns(4)
+        with sec_cols[0]:
+            zone_val = str(int(vzl)) if isinstance(vzl, (int, float)) else vzl
+            st.metric("Zone Level", zone_val, help="1 = Momentum | 2 = Structural Break")
+        with sec_cols[1]:
+            st.metric("Boundary Type", str(vbt) if vbt != "-" else vbt, help="0.618 or Zone-Dominant")
+        with sec_cols[2]:
+            rr_display = f"{float(vrr):.2f}" if isinstance(vrr, (int, float)) else (vrr if vrr != "-" else "-")
+            st.metric("R:R", rr_display, help="Risk:Reward ratio for deployment (min 1:1.3)")
+        with sec_cols[3]:
+            dt_display = "Yes ✓" if vdt is True else ("No" if vdt is False else str(vdt))
+            st.metric("Deployment Trigger", dt_display, help="Ready to deploy?")
+
+    st.markdown("---")
+
+    st.subheader("Weekly Opportunity Log – Last 4 Weeks")
+    try:
+        df_15m_raw_slice = slice_df_by_days(df_15m_raw, lookback_days, "15M")
+        rows = build_opportunity_rows(result, df_15m_raw_slice, lookback_weeks=4)
+        render_opportunity_table(rows)
+    except Exception as e:
+        st.error("Opportunity table failed to render.")
+        st.exception(e)
+    st.markdown("---")
+
+    with st.expander("📘 Market Story Guide", expanded=False):
+        st.markdown("**⚠️ This dashboard provides context, not signals.**")
+        st.markdown("")
+        st.markdown("### 🔍 How to Read This Dashboard")
+        st.markdown("")
+        st.markdown("**1. Market State**")
+        st.markdown("- **4H Season** — higher timeframe direction")
+        st.markdown("- **1H Wind** — short-term momentum / structure")
+        st.markdown("- **Narrative Stage** — current market phase (Environment → Deployment)")
+        st.markdown("")
+        st.markdown("**2. Market Bias**")
+        st.markdown("- **Up Bias** — bullish expectation")
+        st.markdown("- **Down Bias** — bearish expectation")
+        st.markdown("- **Range** — no clear directional bias")
+        st.markdown("")
+        st.markdown("**3. Decision Logic**")
+        st.markdown("- If Stage = Trend AND Bias aligns → watch for opportunities")
+        st.markdown("- If Stage = Environment → avoid trading (context only)")
+        st.markdown("- If Zone Level ≥ 2 → potential reaction / deployment zone")
+        st.markdown("")
+        st.markdown("**4. Purpose of Dashboard**")
+        st.markdown("- This tool is for opportunity filtering and narrative context")
+        st.markdown("- NOT for direct entry execution; confirm on TradingView before trading")
+        st.markdown("")
+
+    st.subheader(f"{asset} – 4H Season / 1H Wind / 15M Deployment")
+
     df_15m_raw_slice = slice_df_by_days(df_15m_raw, lookback_days, "15M")
-    rows = build_opportunity_rows(result, df_15m_raw_slice, lookback_weeks=4)
-    render_opportunity_table(rows)
-except Exception as e:
-    st.error("Opportunity table failed to render.")
-    st.exception(e)
-st.markdown("---")
+    df_1h_raw_slice = slice_df_by_days(df_1h_raw, lookback_days, "1H")
+    df_4h_raw_slice = slice_df_by_days(df_4h_raw, lookback_days, "4H")
 
-# ----- Market Story Guide (explanatory, collapsible) -----
-with st.expander("📘 Market Story Guide", expanded=False):
-    st.markdown("**⚠️ This dashboard provides context, not signals.**")
-    st.markdown("")
-    st.markdown("### 🔍 How to Read This Dashboard")
-    st.markdown("")
-    st.markdown("**1. Market State**")
-    st.markdown("- **4H Season** — higher timeframe direction")
-    st.markdown("- **1H Wind** — short-term momentum / structure")
-    st.markdown("- **Narrative Stage** — current market phase (Environment → Deployment)")
-    st.markdown("")
-    st.markdown("**2. Market Bias**")
-    st.markdown("- **Up Bias** — bullish expectation")
-    st.markdown("- **Down Bias** — bearish expectation")
-    st.markdown("- **Range** — no clear directional bias")
-    st.markdown("")
-    st.markdown("**3. Decision Logic**")
-    st.markdown("- If Stage = Trend AND Bias aligns → watch for opportunities")
-    st.markdown("- If Stage = Environment → avoid trading (context only)")
-    st.markdown("- If Zone Level ≥ 2 → potential reaction / deployment zone")
-    st.markdown("")
-    st.markdown("**4. Purpose of Dashboard**")
-    st.markdown("- This tool is for opportunity filtering and narrative context")
-    st.markdown("- NOT for direct entry execution; confirm on TradingView before trading")
-    st.markdown("")
+    df_4h_viz = convert_to_HKT(df_4h_raw_slice)
+    df_1h_viz = convert_to_HKT(df_1h_raw_slice)
+    df_15m_viz = convert_to_HKT(df_15m_raw_slice)
 
-# ----- Three-panel chart: Real market data (HKT viz) -----
-st.subheader(f"{asset} – 4H Season / 1H Wind / 15M Deployment")
+    try:
+        fig = build_three_panel_figure(df_15m_viz, df_1h_viz, df_4h_viz, result, show_trend=show_swing_markers)
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.error("Chart rendering failed.")
+        st.exception(e)
 
-# Slice raw data for visualization only (engine used full-history cached results)
-df_15m_raw_slice = slice_df_by_days(df_15m_raw, lookback_days, "15M")
-df_1h_raw_slice = slice_df_by_days(df_1h_raw, lookback_days, "1H")
-df_4h_raw_slice = slice_df_by_days(df_4h_raw, lookback_days, "4H")
+    st.sidebar.markdown("---")
+    st.sidebar.info("📊 Real market data via yfinance (15M → 1H/4H auto-resample). Cached for fast subsequent loads.")
 
-# Convert to HKT for visualization only
-df_4h_viz = convert_to_HKT(df_4h_raw_slice)
-df_1h_viz = convert_to_HKT(df_1h_raw_slice)
-df_15m_viz = convert_to_HKT(df_15m_raw_slice)
 
-try:
-    fig = build_three_panel_figure(df_15m_viz, df_1h_viz, df_4h_viz, result, show_trend=show_swing_markers)
-    st.plotly_chart(fig, use_container_width=True)
-except Exception as e:
-    st.error("Chart rendering failed.")
-    st.exception(e)
-
-st.sidebar.markdown("---")
-st.sidebar.info("📊 Real market data via yfinance (15M → 1H/4H auto-resample). Cached for fast subsequent loads.")
+# Page routing
+page = st.sidebar.radio("Navigation", ["🧭 Story Guide", "📊 Market Scanner", "🎯 Asset Story"], index=0)
+if page == "🧭 Story Guide":
+    render_story_guide()
+elif page == "📊 Market Scanner":
+    render_scanner()
+elif page == "🎯 Asset Story":
+    render_asset_dashboard()
