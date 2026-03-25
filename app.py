@@ -184,6 +184,8 @@ def render_scanner():
 
 def render_asset_dashboard():
     # Sidebar configuration for asset page
+    # allow assigning to module-level names used by the main rendering code below
+    global asset, lookback_days, show_swing_markers, df_4h_raw, df_1h_raw, df_15m_raw, result
     asset_local = st.sidebar.selectbox("Asset", list(SYMBOL_MAP.keys()), index=0)
     lookback_days_local = st.sidebar.slider("Lookback Days", 5, 30, 15, 1, help="Display last N days on charts and tables. Engine uses full cached history; changing this will not re-run the engine.")
     show_swing_markers_local = st.sidebar.checkbox("Show swing markers", value=False, help="Toggle plotting of swing high/low markers on charts (visual only).")
