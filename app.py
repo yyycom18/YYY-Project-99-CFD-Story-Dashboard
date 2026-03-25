@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 import streamlit as st
 import pandas as pd
 
-from data.market_data import fetch_all_timeframes, SYMBOL_MAP
+from data.market_data import REQUIRED_OHLC, fetch_all_timeframes, SYMBOL_MAP
 from engine.narrative import run_narrative_engine
 from visualization.layout import build_three_panel_figure
 from ui.table import build_opportunity_rows, render_opportunity_table
@@ -33,25 +33,38 @@ DEBUG_MODE = False
 @st.cache_data(show_spinner=False)
 def load_data(asset: str, bars_15m: int = FULL_BARS_15M):
     """Cache raw data fetching. Returns dict with '4H','1H','15M' DataFrames."""
-    # fetch_all_timeframes expects parameter name `lookback_days`
     print(f"DEBUG load_data: requesting asset={asset}, lookback_days={bars_15m}")
-    data_raw = fetch_all_timeframes(asset, lookback_days=bars_15m)
-    # Debug prints
+    try:
+        data_raw = fetch_all_timeframes(asset, lookback_days=bars_15m)
+    except Exception as e:
+        raise RuntimeError(f"Data load failed: {e}") from e
+
     if not data_raw:
-        raise RuntimeError(f"load_data: fetch_all_timeframes returned empty for {asset}")
+        raise RuntimeError(f"Data load failed: fetch returned no data for {asset}")
+
     for tf in ["15M", "1H", "4H"]:
         df = data_raw.get(tf)
         if df is None:
             print(f"DEBUG load_data: {tf} missing in data_raw for {asset}")
-        else:
-            try:
-                print(f"DEBUG load_data: {asset} {tf} shape={df.shape}, empty={df.empty}")
-            except Exception:
-                print(f"DEBUG load_data: {asset} {tf} present but could not read shape")
-    # If 15M is empty, raise clear error so caller can surface it
-    df15 = data_raw.get("15M")
-    if df15 is None or df15.empty:
-        raise RuntimeError(f"load_data: 15M data empty for {asset} after fetch. See logs for fetch failures.")
+            if tf == "15M":
+                raise RuntimeError(f"Data load failed: 15M missing for {asset}")
+            continue
+        try:
+            print(f"DEBUG load_data: {asset} {tf} shape={df.shape}, empty={df.empty}")
+        except Exception:
+            print(f"DEBUG load_data: {asset} {tf} present but could not read shape")
+
+        if df.empty:
+            if tf == "15M":
+                raise RuntimeError(f"Data load failed: 15M empty for {asset}")
+            continue
+
+        missing = [c for c in REQUIRED_OHLC if c not in df.columns]
+        if missing:
+            raise RuntimeError(
+                f"Data load failed: {asset} {tf} missing OHLC {missing}; columns={list(df.columns)}"
+            )
+
     return data_raw
 
 
@@ -275,7 +288,7 @@ def render_scanner():
             try:
                 data_raw_dbg = load_data(sym)
             except Exception as e:
-                st.error(f"Data load error for {sym}: {e}")
+                st.error(f"Data load failed ({sym}): {e}")
                 continue
             if DEBUG_MODE:
                 st.write(f"DEBUG: data_raw keys for {sym}:", list(data_raw_dbg.keys()) if data_raw_dbg else "missing")
@@ -334,29 +347,27 @@ def render_asset_dashboard():
         help="Toggle plotting of swing high/low markers on charts (visual only).",
     )
 
-    with st.spinner("Loading real market data and running narrative engine… (~10–20s first time, instant on cache)"):
-        try:
-            data_raw_main = load_data(asset)
-        except Exception as e:
-            st.error(f"Data load error for {asset}: {e}")
-            st.stop()
-        if DEBUG_MODE:
-            st.write("DEBUG: data_raw keys:", list(data_raw_main.keys()) if data_raw_main else "missing")
-        if data_raw_main:
-            for tf in ["15M", "1H", "4H"]:
-                df_dbg = data_raw_main.get(tf)
-                if isinstance(df_dbg, pd.DataFrame):
-                    if DEBUG_MODE:
-                        st.write(f"DEBUG {tf} shape:", df_dbg.shape)
-                        st.write(f"DEBUG {tf} empty?", df_dbg.empty)
-                else:
-                    if DEBUG_MODE:
-                        st.write(f"DEBUG {tf} missing or invalid")
+    # Fail fast on bad/missing OHLC before long-running spinner + engine
+    try:
+        data_raw_main = load_data(asset)
+    except Exception as e:
+        st.error(f"Data load failed: {e}")
+        st.stop()
 
+    if DEBUG_MODE:
+        st.write("DEBUG: data_raw keys:", list(data_raw_main.keys()) if data_raw_main else "missing")
+        for tf in ["15M", "1H", "4H"]:
+            df_dbg = data_raw_main.get(tf)
+            if isinstance(df_dbg, pd.DataFrame):
+                st.write(f"DEBUG {tf} shape:", df_dbg.shape, "empty?", df_dbg.empty)
+            else:
+                st.write(f"DEBUG {tf} missing or invalid")
+
+    with st.spinner("Running narrative engine… (data cached; first run may take a few seconds)"):
         try:
             df_4h_raw, df_1h_raw, df_15m_raw, result = run_engine_cached(asset)
         except Exception as e:
-            st.error(f"Engine error for {asset}: {e}")
+            st.error(f"{e}")
             st.stop()
 
         if DEBUG_MODE:
