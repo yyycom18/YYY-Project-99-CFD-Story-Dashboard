@@ -275,9 +275,14 @@ def render_story_guide():
 
 def render_scanner():
     # Scanner limits slider in scanner page
-    max_assets_default = 1
-    max_assets_upper = min(8, max(1, len(SYMBOL_MAP)))
-    scan_limit_local = st.sidebar.slider("Max assets to scan", 1, max_assets_upper, max_assets_default)
+    assets = list(SYMBOL_MAP.keys())
+    total_assets = len(assets)
+    scan_limit_local = st.sidebar.slider(
+        "Max assets to scan",
+        min_value=1,
+        max_value=max(1, total_assets),
+        value=min(3, max(1, total_assets)),
+    )
     st.subheader("Market Scanner")
     scanner_rows_local = []
     with st.spinner("Scanning story state across selected assets…"):
