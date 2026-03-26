@@ -288,7 +288,7 @@ def render_scanner():
             try:
                 data_raw_dbg = load_data(sym)
             except Exception as e:
-                st.error(f"Data load failed ({sym}): {e}")
+                st.error(f"{sym} load failed: {e}")
                 continue
             if DEBUG_MODE:
                 st.write(f"DEBUG: data_raw keys for {sym}:", list(data_raw_dbg.keys()) if data_raw_dbg else "missing")
@@ -351,7 +351,7 @@ def render_asset_dashboard():
     try:
         data_raw_main = load_data(asset)
     except Exception as e:
-        st.error(f"Data load failed: {e}")
+        st.error(f"{asset} load failed: {e}")
         st.stop()
 
     if DEBUG_MODE:

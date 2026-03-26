@@ -8,17 +8,20 @@ import pandas as pd
 import yfinance as yf
 
 
-# Symbol mapping: User-friendly name → Yahoo Finance symbol
+# Symbol mapping: User-friendly name → Yahoo Finance symbol (order = sidebar / scanner order)
 SYMBOL_MAP = {
-    "XAUUSD": "GC=F",        # Gold futures (COMEX)
-    "EURUSD": "EURUSD=X",    # EUR/USD pair
-    "AUDUSD": "AUDUSD=X",    # AUD/USD pair
-    "GBPUSD": "GBPUSD=X",    # GBP/USD pair
-    "USDCAD": "USDCAD=X",    # USD/CAD pair
-    "NZDUSD": "NZDUSD=X",    # NZD/USD pair
-    "USDCHF": "USDCHF=X",    # USD/CHF pair
-    "USDJPY": "USDJPY=X",    # USD/JPY pair
-    "HK50": "^HSI",          # Hang Seng Index
+    "XAUUSD": "GC=F",        # Gold futures (COMEX); XAUUSD=X fallback via YFIN_SYMBOL_FALLBACKS
+    "GBPJPY": "GBPJPY=X",
+    "EURJPY": "EURJPY=X",
+    "EURUSD": "EURUSD=X",
+    "EURGBP": "EURGBP=X",
+    "AUDUSD": "AUDUSD=X",
+    "GBPUSD": "GBPUSD=X",
+    "USDCAD": "USDCAD=X",
+    "NZDUSD": "NZDUSD=X",
+    "USDCHF": "USDCHF=X",
+    "USDJPY": "USDJPY=X",
+    "HK50": "^HSI",
 }
 
 # Ordered Yahoo symbols to try per asset (spot/CFD proxy first, then futures/alternates)
