@@ -1,8 +1,11 @@
 from typing import Optional
+import logging
 
 import pandas as pd
 
 from .structure import detect_swing_highs, detect_swing_lows
+
+logger = logging.getLogger(__name__)
 
 
 def _last_two_values_at_indices(df: pd.DataFrame, indices) -> Optional[list]:
@@ -50,7 +53,7 @@ def compute_market_bias(df: pd.DataFrame, i: int, swing_highs: Optional[pd.Serie
             swing_lows = detect_swing_lows(df)
     except Exception:
         # If detection fails, log debug and return range
-        print("DEBUG market_bias: swing detection failed")
+        logger.debug("market_bias: swing detection failed", exc_info=True)
         return 0
 
     # find integer positions of swings strictly before i
@@ -62,7 +65,7 @@ def compute_market_bias(df: pd.DataFrame, i: int, swing_highs: Optional[pd.Serie
 
     # Need at least two highs and two lows
     if len(high_pos) < 2 or len(low_pos) < 2:
-        print("DEBUG market_bias: not enough swings (highs, lows):", len(high_pos), len(low_pos))
+        logger.debug("market_bias: not enough swings (highs, lows): %s %s", len(high_pos), len(low_pos))
         return 0
 
     # Get last two high values and last two low values
