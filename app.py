@@ -284,32 +284,115 @@ def render_scanner():
         value=min(3, max(1, total_assets)),
     )
     st.subheader("Market Scanner")
+    # Helpers: data health and signal quality (UI layer only; engine unchanged)
+    def is_data_valid_payload(data_raw: dict) -> (bool, str):
+        """Validate fetched data payload quickly (no retries). Returns (valid, reason)."""
+        if not data_raw or "15M" not in data_raw:
+            return False, "missing 15M"
+        df15 = data_raw.get("15M")
+        if df15 is None or df15.empty:
+            return False, "15M empty"
+        missing = [c for c in REQUIRED_OHLC if c not in df15.columns]
+        if missing:
+            return False, f"missing cols: {missing}"
+        return True, "ok"
+
+    def signal_quality_from_result(res: dict) -> (str, bool):
+        """
+        Return ('green'|'orange'|'red'|'invalid', valid_bool).
+        INVALID if zone_level==0 or rr missing or structure missing.
+        GREEN if 4H+1H+bias aligned; ORANGE if 2/3 aligned; RED otherwise.
+        """
+        if not isinstance(res, dict):
+            return "invalid", False
+        zl = _last_scalar(res.get("zone_level"))
+        rr = _last_scalar(res.get("rr"))
+        # structure: require narrative_stage present
+        ns = _last_scalar(res.get("narrative_stage"))
+
+        # invalid conditions
+        try:
+            if zl is not None and zl != "-" and int(zl) == 0:
+                return "invalid", False
+        except Exception:
+            pass
+        if rr is None or rr == "-" or rr == 0:
+            return "invalid", False
+        if ns is None or ns == "-":
+            return "invalid", False
+
+        # alignment check
+        s4 = _last_scalar(res.get("stage_4h"))
+        s1 = _last_scalar(res.get("stage_1h"))
+        vb4 = _last_scalar(res.get("bias_4h"))
+        # normalize to -1/0/1 where possible
+        aligns = 0
+        try:
+            if int(s4) == 1:
+                aligns += 1
+            if int(s1) == 1:
+                aligns += 1
+        except Exception:
+            pass
+        try:
+            if int(vb4) == 1:
+                aligns += 1
+        except Exception:
+            pass
+        if aligns >= 3:
+            return "green", True
+        if aligns == 2:
+            return "orange", True
+        return "red", True
+
     scanner_rows_local = []
+    placeholder = st.empty()
+    progress = st.empty()
+    partial_table = st.empty()
+
+    # iterate and show partial results immediately
+    assets_iter = list(SYMBOL_MAP.keys())
     with st.spinner("Scanning story state across selected assets…"):
-        for i, sym in enumerate(SYMBOL_MAP.keys()):
+        for i, sym in enumerate(assets_iter):
             if i >= scan_limit_local:
                 break
-            st.write(f"Scanning {sym}...")
+            # progress text
+            progress.text(f"Scanning asset {i+1}/{scan_limit_local}: {sym}")
+
             try:
                 data_raw_dbg = load_data(sym)
             except Exception as e:
-                st.error(f"{sym} load failed: {e}")
+                # show fail and continue
+                placeholder.error(f"{sym} load failed: {e}")
                 continue
-            if DEBUG_MODE:
-                st.write(f"DEBUG: data_raw keys for {sym}:", list(data_raw_dbg.keys()) if data_raw_dbg else "missing")
-                for tf in ["15M", "1H", "4H"]:
-                    if data_raw_dbg and tf in data_raw_dbg and isinstance(data_raw_dbg[tf], pd.DataFrame):
-                        st.write(f"DEBUG {sym} {tf} shape:", data_raw_dbg[tf].shape)
-                    else:
-                        st.write(f"DEBUG {sym} {tf} missing or not a DataFrame")
+
+            valid, reason = is_data_valid_payload(data_raw_dbg)
+            if not valid:
+                placeholder.warning(f"{sym} data invalid: {reason}")
+                # still show in table as invalid
+                scanner_rows_local.append({
+                    "Asset": sym,
+                    "Market Regime": "N/A",
+                    "Season (4H)": "N/A",
+                    "Wind (1H)": "N/A",
+                    "Stage (Narrative)": "N/A",
+                    "Signal": "🔴",
+                    "ValidSignal": False,
+                    "Note": reason,
+                })
+                partial_table.dataframe(pd.DataFrame(scanner_rows_local), use_container_width=True)
+                continue
+
+            # run engine (cached)
             try:
                 df4, df1, df15, res = run_engine_cached(sym)
             except Exception as e:
-                st.error(f"Engine error for {sym}: {e}")
+                placeholder.error(f"Engine error for {sym}: {e}")
                 continue
             if df4 is None or df15 is None or res is None:
-                st.warning(f"No data for {sym}; skipping.")
+                placeholder.warning(f"No data for {sym}; skipping.")
                 continue
+
             s4 = _last_scalar(res.get("stage_4h"))
             s1 = _last_scalar(res.get("stage_1h"))
             ns = _last_scalar(res.get("narrative_stage"))
@@ -317,13 +400,31 @@ def render_scanner():
             wind_text = _season_text(s1) if s1 != "-" else "N/A"
             stage_text = _narrative_text(ns) if ns != "-" else "N/A"
             regime = _compute_market_regime(df4)
+
+            quality, valid_signal = signal_quality_from_result(res)
+            signal_emoji = {"green":"🟢","orange":"🟠","red":"🔴","invalid":"⚪"}.get(quality, "⚪")
+
             scanner_rows_local.append({
                 "Asset": sym,
                 "Market Regime": regime,
                 "Season (4H)": season_text,
                 "Wind (1H)": wind_text,
                 "Stage (Narrative)": stage_text,
+                "Signal": signal_emoji,
+                "ValidSignal": bool(valid_signal),
             })
+
+            # show per-asset success
+            if valid_signal:
+                placeholder.success(f"{sym} scanned — signal status: {quality.upper()}")
+            else:
+                placeholder.info(f"{sym} scanned — invalid signal ({quality})")
+
+            # update partial table live
+            df_partial = pd.DataFrame(scanner_rows_local)
+            partial_table.dataframe(df_partial, use_container_width=True)
+
+    # final rendering (apply styles)
     if scanner_rows_local:
         scanner_df_local = pd.DataFrame(scanner_rows_local)
         styled_local = (

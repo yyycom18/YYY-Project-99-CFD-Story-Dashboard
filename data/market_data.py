@@ -26,8 +26,14 @@ SYMBOL_MAP = {
 
 # Ordered Yahoo symbols to try per asset (spot/CFD proxy first, then futures/alternates)
 YFIN_SYMBOL_FALLBACKS = {
-    "XAUUSD": ["XAUUSD=X", "GC=F"],
+    # GC=F is the reliable 15m source for XAUUSD; avoid XAUUSD=X retries which are unreliable.
+    "XAUUSD": ["GC=F"],
     "HK50": ["^HSI"],
+}
+
+# Explicit supported source map (used as capability hint; does not change engine)
+SUPPORTED_SOURCES = {
+    "XAUUSD": ["GC=F"],
 }
 
 REQUIRED_OHLC = ("open", "high", "low", "close")
@@ -134,6 +140,7 @@ def fetch_15m_data(symbol: str, lookback_days: int = 15) -> pd.DataFrame:
                     period=period_arg,
                     auto_adjust=False,
                     progress=False,
+                    timeout=10,  # enforce faster failure for unreliable sources
                 )
                 print(f"DEBUG fetch_15m_data: raw download type={type(raw)}, shape={getattr(raw, 'shape', None)}")
                 if raw is None or raw.empty:
