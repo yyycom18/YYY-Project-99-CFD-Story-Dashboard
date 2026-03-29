@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT))
 
 import streamlit as st
 import pandas as pd
+import logging
 
 from data.market_data import REQUIRED_OHLC, fetch_all_timeframes, SYMBOL_MAP
 from engine.narrative import run_narrative_engine
@@ -28,12 +29,16 @@ st.set_page_config(
 
 FULL_BARS_15M = 4000  # default history for engine and full-data operations
 DEBUG_MODE = False
+if DEBUG_MODE:
+    logging.basicConfig(level=logging.DEBUG)
+else:
+    logging.basicConfig(level=logging.WARNING)
 
 
 @st.cache_data(show_spinner=False)
 def load_data(asset: str, bars_15m: int = FULL_BARS_15M):
     """Cache raw data fetching. Returns dict with '4H','1H','15M' DataFrames."""
-    print(f"DEBUG load_data: requesting asset={asset}, lookback_days={bars_15m}")
+    logging.getLogger(__name__).debug("load_data requesting asset=%s lookback_days=%s", asset, bars_15m)
     try:
         data_raw = fetch_all_timeframes(asset, lookback_days=bars_15m)
     except Exception as e:
@@ -45,14 +50,14 @@ def load_data(asset: str, bars_15m: int = FULL_BARS_15M):
     for tf in ["15M", "1H", "4H"]:
         df = data_raw.get(tf)
         if df is None:
-            print(f"DEBUG load_data: {tf} missing in data_raw for {asset}")
+            logging.getLogger(__name__).debug("load_data: %s missing in data_raw for %s", tf, asset)
             if tf == "15M":
                 raise RuntimeError(f"Data load failed: 15M missing for {asset}")
             continue
         try:
-            print(f"DEBUG load_data: {asset} {tf} shape={df.shape}, empty={df.empty}")
+            logging.getLogger(__name__).debug("load_data: %s %s shape=%s empty=%s", asset, tf, getattr(df, "shape", None), getattr(df, "empty", None))
         except Exception:
-            print(f"DEBUG load_data: {asset} {tf} present but could not read shape")
+            logging.getLogger(__name__).debug("load_data: %s %s present but could not read shape", asset, tf)
 
         if df.empty:
             if tf == "15M":
@@ -374,9 +379,11 @@ def render_scanner():
                     "Asset": sym,
                     "Market Regime": "N/A",
                     "Season (4H)": "N/A",
+                    "Bias (4H)": "N/A",
                     "Wind (1H)": "N/A",
+                    "Bias (1H)": "N/A",
                     "Stage (Narrative)": "N/A",
-                    "Signal": "🔴",
+                    "Signal": "🔴 INVALID",
                     "ValidSignal": False,
                     "Note": reason,
                 })
@@ -400,17 +407,39 @@ def render_scanner():
             wind_text = _season_text(s1) if s1 != "-" else "N/A"
             stage_text = _narrative_text(ns) if ns != "-" else "N/A"
             regime = _compute_market_regime(df4)
+            # Extract bias values (display-friendly)
+            vb4 = _last_scalar(res.get("bias_4h"))
+            vb1 = _last_scalar(res.get("bias_1h"))
+            def _bias_display(val):
+                try:
+                    if int(val) == 1:
+                        return "↑ Up"
+                    if int(val) == -1:
+                        return "↓ Down"
+                except Exception:
+                    pass
+                return "→ Range"
 
             quality, valid_signal = signal_quality_from_result(res)
             signal_emoji = {"green":"🟢","orange":"🟠","red":"🔴","invalid":"⚪"}.get(quality, "⚪")
+            # Basic signal text (Fix 3 — minimal): map quality to short text
+            quality_text = {
+                "green": "ALIGNED",
+                "orange": "PARTIAL",
+                "red": "UNALIGNED",
+                "invalid": "INVALID"
+            }.get(quality, "?")
+            signal_display = f"{signal_emoji} {quality_text}"
 
             scanner_rows_local.append({
                 "Asset": sym,
                 "Market Regime": regime,
                 "Season (4H)": season_text,
+                "Bias (4H)": _bias_display(vb4),
                 "Wind (1H)": wind_text,
+                "Bias (1H)": _bias_display(vb1),
                 "Stage (Narrative)": stage_text,
-                "Signal": signal_emoji,
+                "Signal": signal_display,
                 "ValidSignal": bool(valid_signal),
             })
 
@@ -427,6 +456,11 @@ def render_scanner():
     # final rendering (apply styles)
     if scanner_rows_local:
         scanner_df_local = pd.DataFrame(scanner_rows_local)
+        # Clear partial table before showing final table (Fix 1)
+        try:
+            partial_table.empty()
+        except Exception:
+            pass
         styled_local = (
             scanner_df_local.style.applymap(_regime_color, subset=["Market Regime"])
             .applymap(_season_color, subset=["Season (4H)", "Wind (1H)"])

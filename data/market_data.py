@@ -6,6 +6,7 @@ from typing import Optional
 
 import pandas as pd
 import yfinance as yf
+import logging
 
 
 # Symbol mapping: User-friendly name → Yahoo Finance symbol (order = sidebar / scanner order)
@@ -38,6 +39,8 @@ SUPPORTED_SOURCES = {
 
 REQUIRED_OHLC = ("open", "high", "low", "close")
 
+logger = logging.getLogger(__name__)
+
 
 def _yahoo_symbols_to_try(asset_key: str) -> list:
     if asset_key in YFIN_SYMBOL_FALLBACKS:
@@ -53,10 +56,9 @@ def normalize_ohlc_dataframe(df: pd.DataFrame, *, debug_label: str = "") -> pd.D
     if df is None or df.empty:
         raise ValueError("Empty DataFrame from data source")
 
-    print("DEBUG RAW DF:")
-    print(type(df))
-    print(df.head())
-    print(df.columns)
+    logger.debug("RAW DF type=%s", type(df))
+    logger.debug("RAW DF head:\n%s", repr(df.head()))
+    logger.debug("RAW DF columns: %s", list(df.columns))
 
     out = df.copy()
 
@@ -100,26 +102,30 @@ def normalize_ohlc_dataframe(df: pd.DataFrame, *, debug_label: str = "") -> pd.D
 def fetch_15m_data(symbol: str, lookback_days: int = 15) -> pd.DataFrame:
     """
     Fetch 15-minute OHLC data using yfinance.
-    
+
     Args:
         symbol: User-friendly asset name (e.g., "XAUUSD")
         lookback_days: Number of days to fetch (default 15 = 2 weeks)
-    
+
     Returns:
         DataFrame with columns: open, high, low, close (lowercase)
         Index: datetime (UTC)
-    
+
     Raises:
         ValueError: If no valid OHLC data could be obtained after retries.
     """
-    print(f"DEBUG fetch_15m_data: requested symbol={symbol}, lookback_days={lookback_days}")
+    logger.debug("fetch_15m_data requested symbol=%s lookback_days=%s", symbol, lookback_days)
     yahoo_chain = _yahoo_symbols_to_try(symbol)
-    print(f"DEBUG fetch_15m_data: Yahoo symbol chain={yahoo_chain}")
+    logger.debug("Yahoo symbol chain=%s", yahoo_chain)
 
     max_period = 60
     period_days = min(lookback_days, max_period)
 
-    attempts = [period_days, min(period_days, 30), 14, 7, 3]
+    # Production SOP: cap retries to 2 attempts per asset (fast-fail behavior)
+    attempts = [period_days]
+    if period_days != 14:
+        attempts.append(14)
+
     tried_days = set()
     last_error: Optional[Exception] = None
 
@@ -129,40 +135,39 @@ def fetch_15m_data(symbol: str, lookback_days: int = 15) -> pd.DataFrame:
         tried_days.add(days)
         period_arg = f"{days}d"
 
+        # iterate over candidate yahoo symbols (usually single entry)
         for yf_sym in yahoo_chain:
             try:
-                print(
-                    f"DEBUG fetch_15m_data: yf.download({yf_sym}, interval='15m', period='{period_arg}')"
-                )
+                logger.debug("yf.download(%s) period=%s", yf_sym, period_arg)
                 raw = yf.download(
                     yf_sym,
                     interval="15m",
                     period=period_arg,
                     auto_adjust=False,
                     progress=False,
-                    timeout=10,  # enforce faster failure for unreliable sources
+                    timeout=10,  # SOP: fail-fast per call (updated to 10s for reliability)
                 )
-                print(f"DEBUG fetch_15m_data: raw download type={type(raw)}, shape={getattr(raw, 'shape', None)}")
+                logger.debug("raw download type=%s shape=%s", type(raw), getattr(raw, "shape", None))
                 if raw is None or raw.empty:
-                    print(f"DEBUG fetch_15m_data: empty raw for {yf_sym} period={period_arg}")
+                    logger.debug("empty raw for %s period=%s", yf_sym, period_arg)
                     continue
                 label = f"[{symbol} yf={yf_sym} period={period_arg}]"
                 df = normalize_ohlc_dataframe(raw, debug_label=label)
-                print(f"DEBUG fetch_15m_data: normalized OK {label} rows={len(df)}")
+                logger.debug("fetch_15m_data normalized OK %s rows=%s", label, len(df))
                 return df
             except ValueError as e:
                 last_error = e
-                print(f"DEBUG fetch_15m_data: normalize failed {yf_sym} period={period_arg}: {e}")
+                logger.debug("normalize failed %s period=%s: %s", yf_sym, period_arg, e)
                 continue
             except Exception as e:
                 last_error = e
-                print(f"DEBUG fetch_15m_data: download exception {yf_sym} period={period_arg}: {e}")
+                logger.debug("download exception %s period=%s: %s", yf_sym, period_arg, e)
                 continue
 
     msg = f"Unable to fetch valid 15m OHLC for {symbol} after retries."
     if last_error:
         msg += f" Last error: {last_error}"
-    print(f"ERROR fetch_15m_data: {msg}")
+    logger.error(msg)
     raise ValueError(msg)
 
 
@@ -189,7 +194,7 @@ def fetch_all_timeframes(symbol: str, lookback_days: int = 15) -> dict:
         if not isinstance(df_15m.index, pd.DatetimeIndex):
             df_15m.index = pd.to_datetime(df_15m.index)
     except Exception:
-        print("DEBUG fetch_all_timeframes: failed to parse datetime index for 15M")
+        logger.debug("fetch_all_timeframes: failed to parse datetime index for 15M", exc_info=True)
     if getattr(df_15m.index, "tz", None) is None:
         try:
             df_15m.index = df_15m.index.tz_localize("UTC")
@@ -197,12 +202,12 @@ def fetch_all_timeframes(symbol: str, lookback_days: int = 15) -> dict:
             try:
                 df_15m.index = df_15m.index.tz_convert("UTC")
             except Exception:
-                print("DEBUG fetch_all_timeframes: could not set timezone to UTC for 15M index")
+                logger.debug("fetch_all_timeframes: could not set timezone to UTC for 15M index", exc_info=True)
     
     # Resample to 1H and 4H
     # Resample to 1H and 4H if sufficient data
     if len(df_15m) < 50:
-        print(f"WARNING fetch_all_timeframes: only {len(df_15m)} rows in 15M for {symbol}; skipping resample")
+        logger.warning("fetch_all_timeframes: only %s rows in 15M for %s; skipping resample", len(df_15m), symbol)
         return {"15M": df_15m, "1H": pd.DataFrame(), "4H": pd.DataFrame()}
 
     df_1h = df_15m.resample("1h").agg({

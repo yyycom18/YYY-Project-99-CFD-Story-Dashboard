@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import os
+import logging
 
 from .market_stage import (
     market_stage_at,
@@ -30,6 +31,7 @@ from .market_bias import compute_market_bias
 
 MIN_RR = 1.0
 MIN_RR_REWARD = 1.3
+logger = logging.getLogger(__name__)
 
 
 def narrative_stage_at(
@@ -202,13 +204,13 @@ def run_narrative_engine(
     debug = bool(os.getenv("NARRATIVE_DEBUG"))
     if debug:
         try:
-            print(f"=== Narrative engine debug for asset: {asset} ===")
-            print("swing_highs_4h count:", int(swing_highs_4h.sum()) if hasattr(swing_highs_4h, "sum") else len(swing_highs_4h))
-            print("swing_lows_4h count:", int(swing_lows_4h.sum()) if hasattr(swing_lows_4h, "sum") else len(swing_lows_4h))
-            print("swing_highs_1h count:", int(swing_highs_1h.sum()) if hasattr(swing_highs_1h, "sum") else len(swing_highs_1h))
-            print("swing_lows_1h count:", int(swing_lows_1h.sum()) if hasattr(swing_lows_1h, "sum") else len(swing_lows_1h))
-            print("swing_highs_15 count:", int(swing_highs_15.sum()) if hasattr(swing_highs_15, "sum") else len(swing_highs_15))
-            print("swing_lows_15 count:", int(swing_lows_15.sum()) if hasattr(swing_lows_15, "sum") else len(swing_lows_15))
+            logger.debug("=== Narrative engine debug for asset: %s ===", asset)
+            logger.debug("swing_highs_4h count: %s", int(swing_highs_4h.sum()) if hasattr(swing_highs_4h, "sum") else len(swing_highs_4h))
+            logger.debug("swing_lows_4h count: %s", int(swing_lows_4h.sum()) if hasattr(swing_lows_4h, "sum") else len(swing_lows_4h))
+            logger.debug("swing_highs_1h count: %s", int(swing_highs_1h.sum()) if hasattr(swing_highs_1h, "sum") else len(swing_highs_1h))
+            logger.debug("swing_lows_1h count: %s", int(swing_lows_1h.sum()) if hasattr(swing_lows_1h, "sum") else len(swing_lows_1h))
+            logger.debug("swing_highs_15 count: %s", int(swing_highs_15.sum()) if hasattr(swing_highs_15, "sum") else len(swing_highs_15))
+            logger.debug("swing_lows_15 count: %s", int(swing_lows_15.sum()) if hasattr(swing_lows_15, "sum") else len(swing_lows_15))
             # print last few swing indicator values
             def tail_list(s):
                 try:
@@ -216,29 +218,29 @@ def run_narrative_engine(
                 except Exception:
                     return []
 
-            print("last 5 swing_highs_4h:", tail_list(swing_highs_4h))
-            print("last 5 swing_lows_4h:", tail_list(swing_lows_4h))
-            print("last 5 swing_highs_1h:", tail_list(swing_highs_1h))
-            print("last 5 swing_lows_1h:", tail_list(swing_lows_1h))
-            print("last 5 swing_highs_15:", tail_list(swing_highs_15))
-            print("last 5 swing_lows_15:", tail_list(swing_lows_15))
-        except Exception as e:
-            print("Narrative debug printing error:", e)
+            logger.debug("last 5 swing_highs_4h: %s", tail_list(swing_highs_4h))
+            logger.debug("last 5 swing_lows_4h: %s", tail_list(swing_lows_4h))
+            logger.debug("last 5 swing_highs_1h: %s", tail_list(swing_highs_1h))
+            logger.debug("last 5 swing_lows_1h: %s", tail_list(swing_lows_1h))
+            logger.debug("last 5 swing_highs_15: %s", tail_list(swing_highs_15))
+            logger.debug("last 5 swing_lows_15: %s", tail_list(swing_lows_15))
+        except Exception:
+            logger.exception("Narrative debug printing error")
     # If no swings detected (very strict fractal), try relaxed fractal (1,1)
     try:
         if swing_highs_4h.sum() == 0 or swing_lows_4h.sum() == 0:
             if debug:
-                print("No 4H swings detected with default fractal; retrying with left=1,right=1")
+                logger.debug("No 4H swings detected with default fractal; retrying with left=1,right=1")
             swing_highs_4h = detect_swing_highs(df_4h, left=1, right=1)
             swing_lows_4h = detect_swing_lows(df_4h, left=1, right=1)
         if swing_highs_1h.sum() == 0 or swing_lows_1h.sum() == 0:
             if debug:
-                print("No 1H swings detected with default fractal; retrying with left=1,right=1")
+                logger.debug("No 1H swings detected with default fractal; retrying with left=1,right=1")
             swing_highs_1h = detect_swing_highs(df_1h, left=1, right=1)
             swing_lows_1h = detect_swing_lows(df_1h, left=1, right=1)
         if swing_highs_15.sum() == 0 or swing_lows_15.sum() == 0:
             if debug:
-                print("No 15M swings detected with default fractal; retrying with left=1,right=1")
+                logger.debug("No 15M swings detected with default fractal; retrying with left=1,right=1")
             swing_highs_15 = detect_swing_highs(df_15m, left=1, right=1)
             swing_lows_15 = detect_swing_lows(df_15m, left=1, right=1)
     except Exception:
@@ -263,9 +265,9 @@ def run_narrative_engine(
 
     if debug:
         try:
-            print("Last 5 stage_4h:", list(stage_4h_s.tail(5).values))
-            print("Last 5 stage_1h:", list(stage_1h_s.tail(5).values))
-            print("Last 5 stage_15m:", list(stage_15m_s.tail(5).values))
+            logger.debug("Last 5 stage_4h: %s", list(stage_4h_s.tail(5).values))
+            logger.debug("Last 5 stage_1h: %s", list(stage_1h_s.tail(5).values))
+            logger.debug("Last 5 stage_15m: %s", list(stage_15m_s.tail(5).values))
             # Check last few structure breaks on 4H
             n4 = len(df_4h)
             last_idxs = list(range(max(0, n4 - 5), n4))
@@ -275,9 +277,9 @@ def run_narrative_engine(
                 down = is_structure_break_down(df_4h, idx, swing_lows=swing_lows_4h)
                 sb = "UP" if up else ("DOWN" if down else None)
                 sb_list.append((idx, sb))
-            print("Recent 4H structure breaks (idx, sb):", sb_list)
+            logger.debug("Recent 4H structure breaks (idx, sb): %s", sb_list)
         except Exception as e:
-            print("Narrative stage debug error:", e)
+            logger.exception("Narrative stage debug error:")
 
     # Align 15m bar index to 4H/1H bar indices by timestamp
     idx_15 = df_15m.index
