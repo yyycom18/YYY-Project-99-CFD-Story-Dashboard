@@ -12,6 +12,8 @@ sys.path.insert(0, str(ROOT))
 import streamlit as st
 import pandas as pd
 import logging
+import time
+import concurrent.futures
 
 from data.market_data import REQUIRED_OHLC, fetch_all_timeframes, SYMBOL_MAP
 from engine.narrative import run_narrative_engine
@@ -27,7 +29,7 @@ st.set_page_config(
 )
 
 
-FULL_BARS_15M = 4000  # default history for engine and full-data operations
+FULL_BARS_15M = 1500  # reduced default history for engine and full-data operations
 DEBUG_MODE = False
 if DEBUG_MODE:
     logging.basicConfig(level=logging.DEBUG)
@@ -279,29 +281,17 @@ def render_story_guide():
 
 
 def render_scanner():
-    # Scanner limits slider in scanner page
+    # Scanner limits slider in scanner page (default small for performance)
     assets = list(SYMBOL_MAP.keys())
     total_assets = len(assets)
     scan_limit_local = st.sidebar.slider(
         "Max assets to scan",
         min_value=1,
         max_value=max(1, total_assets),
-        value=min(3, max(1, total_assets)),
+        value=2,
     )
     st.subheader("Market Scanner")
-    # Helpers: data health and signal quality (UI layer only; engine unchanged)
-    def is_data_valid_payload(data_raw: dict) -> (bool, str):
-        """Validate fetched data payload quickly (no retries). Returns (valid, reason)."""
-        if not data_raw or "15M" not in data_raw:
-            return False, "missing 15M"
-        df15 = data_raw.get("15M")
-        if df15 is None or df15.empty:
-            return False, "15M empty"
-        missing = [c for c in REQUIRED_OHLC if c not in df15.columns]
-        if missing:
-            return False, f"missing cols: {missing}"
-        return True, "ok"
-
+    # signal quality function (module-local copy)
     def signal_quality_from_result(res: dict) -> (str, bool):
         """
         Return ('green'|'orange'|'red'|'invalid', valid_bool).
@@ -350,13 +340,15 @@ def render_scanner():
             return "orange", True
         return "red", True
 
+    # reuse existing signal_quality_from_result defined earlier in module
     scanner_rows_local = []
     placeholder = st.empty()
     progress = st.empty()
     partial_table = st.empty()
 
-    # iterate and show partial results immediately
+    # iterate and show partial results immediately; use timed execution per asset
     assets_iter = list(SYMBOL_MAP.keys())
+    scan_start_time = time.time()
     with st.spinner("Scanning story state across selected assets…"):
         for i, sym in enumerate(assets_iter):
             if i >= scan_limit_local:
@@ -364,17 +356,22 @@ def render_scanner():
             # progress text
             progress.text(f"Scanning asset {i+1}/{scan_limit_local}: {sym}")
 
+            # Run engine (cached) with per-asset timeout to fail-fast
             try:
-                data_raw_dbg = load_data(sym)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(run_engine_cached, sym, FULL_BARS_15M)
+                    try:
+                        df4, df1, df15, res = future.result(timeout=12)
+                    except concurrent.futures.TimeoutError:
+                        placeholder.error(f"{sym} load timeout (>12s); skipping")
+                        continue
             except Exception as e:
-                # show fail and continue
-                placeholder.error(f"{sym} load failed: {e}")
+                placeholder.error(f"Engine error for {sym}: {e}")
                 continue
 
-            valid, reason = is_data_valid_payload(data_raw_dbg)
-            if not valid:
-                placeholder.warning(f"{sym} data invalid: {reason}")
-                # still show in table as invalid
+            # Quick validation on returned results
+            if df4 is None or df15 is None or res is None or (hasattr(df15, "empty") and df15.empty):
+                placeholder.warning(f"No data for {sym}; skipping.")
                 scanner_rows_local.append({
                     "Asset": sym,
                     "Market Regime": "N/A",
@@ -383,21 +380,10 @@ def render_scanner():
                     "Wind (1H)": "N/A",
                     "Bias (1H)": "N/A",
                     "Stage (Narrative)": "N/A",
-                    "Signal": "🔴 INVALID",
+                    "Signal": "⚪ INVALID",
                     "ValidSignal": False,
-                    "Note": reason,
                 })
                 partial_table.dataframe(pd.DataFrame(scanner_rows_local), use_container_width=True)
-                continue
-
-            # run engine (cached)
-            try:
-                df4, df1, df15, res = run_engine_cached(sym)
-            except Exception as e:
-                placeholder.error(f"Engine error for {sym}: {e}")
-                continue
-            if df4 is None or df15 is None or res is None:
-                placeholder.warning(f"No data for {sym}; skipping.")
                 continue
 
             s4 = _last_scalar(res.get("stage_4h"))
@@ -422,7 +408,7 @@ def render_scanner():
 
             quality, valid_signal = signal_quality_from_result(res)
             signal_emoji = {"green":"🟢","orange":"🟠","red":"🔴","invalid":"⚪"}.get(quality, "⚪")
-            # Basic signal text (Fix 3 — minimal): map quality to short text
+            # Basic signal text (minimal)
             quality_text = {
                 "green": "ALIGNED",
                 "orange": "PARTIAL",
@@ -452,6 +438,11 @@ def render_scanner():
             # update partial table live
             df_partial = pd.DataFrame(scanner_rows_local)
             partial_table.dataframe(df_partial, use_container_width=True)
+
+            # global safety cap: stop scanning if total elapsed exceeds threshold
+            if time.time() - scan_start_time > 25:
+                placeholder.warning("Total scanner time exceeded 25 seconds — aborting remaining assets")
+                break
 
     # final rendering (apply styles)
     if scanner_rows_local:
