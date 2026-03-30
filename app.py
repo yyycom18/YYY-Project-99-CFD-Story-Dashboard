@@ -14,6 +14,7 @@ import pandas as pd
 import logging
 import time
 import threading
+import concurrent.futures
 
 from data.market_data import REQUIRED_OHLC, fetch_all_timeframes, SYMBOL_MAP
 from engine.narrative import run_narrative_engine
@@ -354,9 +355,19 @@ def render_scanner():
         st.session_state.scanner_cache = {}
     if "scanner_loader_started" not in st.session_state:
         def update_scanner_cache():
+            # background population of scanner cache with strict per-asset timeout
             for sym in SYMBOL_MAP.keys():
+                # mark loading immediately so UI can reflect state
+                st.session_state.scanner_cache[sym] = {"status": "loading"}
                 try:
-                    df4, df1, df15, res = run_engine_cached(sym, FULL_BARS_15M)
+                    # use executor to enforce per-asset timeout aligned with yf timeout
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                        fut = ex.submit(run_engine_cached, sym, FULL_BARS_15M)
+                        try:
+                            df4, df1, df15, res = fut.result(timeout=10)
+                        except concurrent.futures.TimeoutError:
+                            st.session_state.scanner_cache[sym] = {"status": "timeout"}
+                            continue
                     if df4 is None or df15 is None or res is None:
                         st.session_state.scanner_cache[sym] = {"status": "error"}
                         continue
@@ -443,6 +454,13 @@ def render_scanner():
             # update partial table live
             df_partial = pd.DataFrame(scanner_rows_local)
             partial_table.dataframe(df_partial, use_container_width=True)
+            # Auto-refresh while any asset is still loading
+            try:
+                if any(v.get("status") == "loading" for v in st.session_state.scanner_cache.values()):
+                    time.sleep(2)
+                    st.experimental_rerun()
+            except Exception:
+                pass
 
     # final rendering (apply styles)
     if scanner_rows_local:
