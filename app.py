@@ -13,7 +13,7 @@ import streamlit as st
 import pandas as pd
 import logging
 import time
-import concurrent.futures
+import threading
 
 from data.market_data import REQUIRED_OHLC, fetch_all_timeframes, SYMBOL_MAP
 from engine.narrative import run_narrative_engine
@@ -346,103 +346,103 @@ def render_scanner():
     progress = st.empty()
     partial_table = st.empty()
 
-    # iterate and show partial results immediately; use timed execution per asset
+    # iterate and show partial results immediately; UI reads from background scanner cache
     assets_iter = list(SYMBOL_MAP.keys())
-    scan_start_time = time.time()
-    with st.spinner("Scanning story state across selected assets…"):
+
+    # initialize session cache and start background loader once
+    if "scanner_cache" not in st.session_state:
+        st.session_state.scanner_cache = {}
+    if "scanner_loader_started" not in st.session_state:
+        def update_scanner_cache():
+            for sym in SYMBOL_MAP.keys():
+                try:
+                    df4, df1, df15, res = run_engine_cached(sym, FULL_BARS_15M)
+                    if df4 is None or df15 is None or res is None:
+                        st.session_state.scanner_cache[sym] = {"status": "error"}
+                        continue
+                    regime = _compute_market_regime(df4)
+                    st.session_state.scanner_cache[sym] = {"status": "ok", "res": res, "regime": regime}
+                except Exception:
+                    st.session_state.scanner_cache[sym] = {"status": "error"}
+
+        t = threading.Thread(target=update_scanner_cache, daemon=True)
+        t.start()
+        st.session_state.scanner_loader_started = True
+
+    with st.spinner("Rendering scanner results…"):
         for i, sym in enumerate(assets_iter):
             if i >= scan_limit_local:
                 break
-            # progress text
             progress.text(f"Scanning asset {i+1}/{scan_limit_local}: {sym}")
-
-            # Run engine (cached) with per-asset timeout to fail-fast
-            try:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(run_engine_cached, sym, FULL_BARS_15M)
-                    try:
-                        df4, df1, df15, res = future.result(timeout=12)
-                    except concurrent.futures.TimeoutError:
-                        placeholder.error(f"{sym} load timeout (>12s); skipping")
-                        continue
-            except Exception as e:
-                placeholder.error(f"Engine error for {sym}: {e}")
-                continue
-
-            # Quick validation on returned results
-            if df4 is None or df15 is None or res is None or (hasattr(df15, "empty") and df15.empty):
-                placeholder.warning(f"No data for {sym}; skipping.")
+            cached = st.session_state.scanner_cache.get(sym)
+            if cached is None:
+                # not yet loaded
                 scanner_rows_local.append({
                     "Asset": sym,
-                    "Market Regime": "N/A",
-                    "Season (4H)": "N/A",
-                    "Bias (4H)": "N/A",
-                    "Wind (1H)": "N/A",
-                    "Bias (1H)": "N/A",
-                    "Stage (Narrative)": "N/A",
-                    "Signal": "⚪ INVALID",
+                    "Market Regime": "Loading...",
+                    "Season (4H)": "⏳",
+                    "Bias (4H)": "⏳",
+                    "Wind (1H)": "⏳",
+                    "Bias (1H)": "⏳",
+                    "Stage (Narrative)": "⏳",
+                    "Signal": "⏳ Loading",
                     "ValidSignal": False,
                 })
-                partial_table.dataframe(pd.DataFrame(scanner_rows_local), use_container_width=True)
-                continue
-
-            s4 = _last_scalar(res.get("stage_4h"))
-            s1 = _last_scalar(res.get("stage_1h"))
-            ns = _last_scalar(res.get("narrative_stage"))
-            season_text = _season_text(s4) if s4 != "-" else "N/A"
-            wind_text = _season_text(s1) if s1 != "-" else "N/A"
-            stage_text = _narrative_text(ns) if ns != "-" else "N/A"
-            regime = _compute_market_regime(df4)
-            # Extract bias values (display-friendly)
-            vb4 = _last_scalar(res.get("bias_4h"))
-            vb1 = _last_scalar(res.get("bias_1h"))
-            def _bias_display(val):
-                try:
-                    if int(val) == 1:
-                        return "↑ Up"
-                    if int(val) == -1:
-                        return "↓ Down"
-                except Exception:
-                    pass
-                return "→ Range"
-
-            quality, valid_signal = signal_quality_from_result(res)
-            signal_emoji = {"green":"🟢","orange":"🟠","red":"🔴","invalid":"⚪"}.get(quality, "⚪")
-            # Basic signal text (minimal)
-            quality_text = {
-                "green": "ALIGNED",
-                "orange": "PARTIAL",
-                "red": "UNALIGNED",
-                "invalid": "INVALID"
-            }.get(quality, "?")
-            signal_display = f"{signal_emoji} {quality_text}"
-
-            scanner_rows_local.append({
-                "Asset": sym,
-                "Market Regime": regime,
-                "Season (4H)": season_text,
-                "Bias (4H)": _bias_display(vb4),
-                "Wind (1H)": wind_text,
-                "Bias (1H)": _bias_display(vb1),
-                "Stage (Narrative)": stage_text,
-                "Signal": signal_display,
-                "ValidSignal": bool(valid_signal),
-            })
-
-            # show per-asset success
-            if valid_signal:
-                placeholder.success(f"{sym} scanned — signal status: {quality.upper()}")
             else:
-                placeholder.info(f"{sym} scanned — invalid signal ({quality})")
-
+                if cached.get("status") != "ok":
+                    scanner_rows_local.append({
+                        "Asset": sym,
+                        "Market Regime": "Error",
+                        "Season (4H)": "N/A",
+                        "Bias (4H)": "N/A",
+                        "Wind (1H)": "N/A",
+                        "Bias (1H)": "N/A",
+                        "Stage (Narrative)": "N/A",
+                        "Signal": "⚪ ERROR",
+                        "ValidSignal": False,
+                    })
+                else:
+                    res = cached.get("res", {})
+                    regime = cached.get("regime", "N/A")
+                    s4 = _last_scalar(res.get("stage_4h"))
+                    s1 = _last_scalar(res.get("stage_1h"))
+                    ns = _last_scalar(res.get("narrative_stage"))
+                    season_text = _season_text(s4) if s4 != "-" else "N/A"
+                    wind_text = _season_text(s1) if s1 != "-" else "N/A"
+                    vb4 = _last_scalar(res.get("bias_4h"))
+                    vb1 = _last_scalar(res.get("bias_1h"))
+                    def _bias_display(val):
+                        try:
+                            if int(val) == 1:
+                                return "↑ Up"
+                            if int(val) == -1:
+                                return "↓ Down"
+                        except Exception:
+                            pass
+                        return "→ Range"
+                    quality, valid_signal = signal_quality_from_result(res)
+                    signal_emoji = {"green":"🟢","orange":"🟠","red":"🔴","invalid":"⚪"}.get(quality, "⚪")
+                    quality_text = {
+                        "green": "ALIGNED",
+                        "orange": "PARTIAL",
+                        "red": "UNALIGNED",
+                        "invalid": "INVALID"
+                    }.get(quality, "?")
+                    signal_display = f"{signal_emoji} {quality_text}"
+                    scanner_rows_local.append({
+                        "Asset": sym,
+                        "Market Regime": regime,
+                        "Season (4H)": season_text,
+                        "Bias (4H)": _bias_display(vb4),
+                        "Wind (1H)": wind_text,
+                        "Bias (1H)": _bias_display(vb1),
+                        "Stage (Narrative)": _narrative_text(ns) if ns != "-" else "N/A",
+                        "Signal": signal_display,
+                        "ValidSignal": bool(valid_signal),
+                    })
             # update partial table live
             df_partial = pd.DataFrame(scanner_rows_local)
             partial_table.dataframe(df_partial, use_container_width=True)
-
-            # global safety cap: stop scanning if total elapsed exceeds threshold
-            if time.time() - scan_start_time > 25:
-                placeholder.warning("Total scanner time exceeded 25 seconds — aborting remaining assets")
-                break
 
     # final rendering (apply styles)
     if scanner_rows_local:
