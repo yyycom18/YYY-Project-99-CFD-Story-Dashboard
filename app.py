@@ -345,7 +345,7 @@ def render_scanner():
     progress = st.empty()
     partial_table = st.empty()
 
-    # iterate and show partial results immediately; UI reads from background scanner cache
+    # iterate and show partial results immediately; UI-driven incremental loading (no threads)
     assets_iter = list(SYMBOL_MAP.keys())
 
     # initialize session cache and index for UI-driven incremental loading (no threads)
@@ -354,10 +354,15 @@ def render_scanner():
     if "scanner_index" not in st.session_state:
         st.session_state.scanner_index = 0
 
+    # Debug index display (temporary)
+    st.write("DEBUG index:", st.session_state.scanner_index)
+
+    # Only consider selected assets (respect scan_limit_local)
+    selected_assets = assets_iter[:scan_limit_local]
+
     # If there are assets remaining to load, load one per render cycle synchronously
-    remaining_assets = list(SYMBOL_MAP.keys())
-    if st.session_state.scanner_index < len(remaining_assets):
-        sym_to_load = remaining_assets[st.session_state.scanner_index]
+    if st.session_state.scanner_index < len(selected_assets):
+        sym_to_load = selected_assets[st.session_state.scanner_index]
         # avoid reprocessing if already present
         if sym_to_load not in st.session_state.scanner_cache:
             st.session_state.scanner_cache[sym_to_load] = {"status": "loading"}
@@ -371,15 +376,16 @@ def render_scanner():
                     st.session_state.scanner_cache[sym_to_load] = {"status": "ok", "res": res, "regime": regime}
             except Exception:
                 st.session_state.scanner_cache[sym_to_load] = {"status": "error"}
-            # advance index and re-run to refresh UI
+            # advance index and re-run to refresh UI (only if more assets remain)
             st.session_state.scanner_index += 1
-            try:
-                st.rerun()
-            except Exception:
+            if st.session_state.scanner_index < len(selected_assets):
                 try:
-                    st.experimental_rerun()
+                    st.rerun()
                 except Exception:
-                    pass
+                    try:
+                        st.experimental_rerun()
+                    except Exception:
+                        pass
 
     with st.spinner("Rendering scanner results…"):
         for i, sym in enumerate(assets_iter):
