@@ -668,10 +668,70 @@ def render_asset_dashboard():
 
 
 # Page routing
-page = st.sidebar.radio("Navigation", ["🧭 Story Guide", "📊 Market Scanner", "🎯 Asset Story"], index=0)
+page = st.sidebar.radio(
+    "Navigation",
+    ["🧭 Story Guide", "📊 Market Scanner", "🎯 Asset Story", "📚 Docs"],
+    index=0,
+)
+
+def render_docs():
+    """Render documentation pages from /docs with sidebar navigation and next/prev controls."""
+    docs_dir = ROOT / "docs"
+    if not docs_dir.exists():
+        st.error("Documentation directory not found.")
+        return
+
+    # Collect markdown files in defined order if present
+    docs_files = [
+        "00_DASHBOARD_GUIDE.md",
+        "01_MARKET_SCANNER.md",
+        "02_DATA_LOADING_LOGIC.md",
+        "03_SIGNAL_BIAS_EXPLAINED.md",
+        "DADA_HANDOFF_UI_INTEGRATION.md",
+        "DOCUMENTATION_SUMMARY.md",
+    ]
+    available = [f for f in docs_files if (docs_dir / f).exists()]
+    if not available:
+        st.error("No documentation files found in docs/.")
+        return
+
+    titles = [p.replace(".md", "").replace("_", " ") for p in available]
+
+    # session state for selected doc index
+    if "doc_index" not in st.session_state:
+        st.session_state.doc_index = 0
+
+    # Sidebar selector
+    sel = st.sidebar.selectbox("Documentation", titles, index=st.session_state.doc_index)
+    st.session_state.doc_index = titles.index(sel)
+
+    # Prev / Next buttons
+    cols = st.columns([1, 1, 6])
+    if cols[0].button("Prev"):
+        st.session_state.doc_index = max(0, st.session_state.doc_index - 1)
+        sel = titles[st.session_state.doc_index]
+    if cols[1].button("Next"):
+        st.session_state.doc_index = min(len(titles) - 1, st.session_state.doc_index + 1)
+        sel = titles[st.session_state.doc_index]
+
+    # Read and render markdown
+    filename = available[st.session_state.doc_index]
+    md_path = docs_dir / filename
+    try:
+        content = md_path.read_text(encoding="utf-8")
+    except Exception as e:
+        st.error(f"Failed to read {filename}: {e}")
+        return
+
+    st.markdown(f"### {sel}", unsafe_allow_html=True)
+    st.markdown(content)
+
+
 if page == "🧭 Story Guide":
     render_story_guide()
 elif page == "📊 Market Scanner":
     render_scanner()
 elif page == "🎯 Asset Story":
     render_asset_dashboard()
+elif page == "📚 Docs":
+    render_docs()
