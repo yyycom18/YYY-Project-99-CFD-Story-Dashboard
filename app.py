@@ -373,7 +373,13 @@ def render_scanner():
                 st.session_state.scanner_cache[sym_to_load] = {"status": "error"}
             # advance index and re-run to refresh UI
             st.session_state.scanner_index += 1
-            st.experimental_rerun()
+            try:
+                st.rerun()
+            except Exception:
+                try:
+                    st.experimental_rerun()
+                except Exception:
+                    pass
 
     with st.spinner("Rendering scanner results…"):
         for i, sym in enumerate(assets_iter):
