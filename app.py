@@ -373,7 +373,80 @@ def render_scanner():
                     st.session_state.scanner_cache[sym_to_load] = {"status": "error"}
                 else:
                     regime = _compute_market_regime(df4)
-                    st.session_state.scanner_cache[sym_to_load] = {"status": "ok", "res": res, "regime": regime}
+                    # Compute alignment score (0-3)
+                    try:
+                        s4 = _last_scalar(res.get("stage_4h"))
+                        s1 = _last_scalar(res.get("stage_1h"))
+                        vb4 = _last_scalar(res.get("bias_4h"))
+                        # bias series may be series; get last scalar if needed
+                        def to_int_safe(x):
+                            try:
+                                return int(x)
+                            except Exception:
+                                return 0
+                        s4i, s1i, vb4i = to_int_safe(s4), to_int_safe(s1), to_int_safe(vb4)
+                        count_up = sum(1 for v in (s4i, s1i, vb4i) if v == 1)
+                        count_down = sum(1 for v in (s4i, s1i, vb4i) if v == -1)
+                        alignment = max(count_up, count_down)
+                    except Exception:
+                        alignment = 0
+
+                    # Compute proximity: check last boundary price vs last close in df15
+                    proximity = "⚪ FAR"
+                    try:
+                        bps = res.get("boundary_price", [])
+                        # get last non-None boundary price
+                        last_bp = None
+                        if isinstance(bps, (list, tuple)):
+                            for v in reversed(bps):
+                                if v is not None:
+                                    last_bp = float(v)
+                                    break
+                        else:
+                            # if it's a pd.Series or similar
+                            try:
+                                last_bp = float(_last_scalar(bps))
+                            except Exception:
+                                last_bp = None
+                        # get last close price from df15
+                        last_close = None
+                        if hasattr(df15, "iloc"):
+                            # try lowercase 'close' then 'Close'
+                            if "close" in df15.columns:
+                                last_close = float(df15["close"].iloc[-1])
+                            elif "Close" in df15.columns:
+                                last_close = float(df15["Close"].iloc[-1])
+                        if last_bp is not None and last_close is not None:
+                            rel = abs(last_close - last_bp) / max(abs(last_bp), 1e-8)
+                            # NEAR threshold 1%
+                            if rel <= 0.01:
+                                proximity = "🟢 NEAR"
+                            else:
+                                proximity = "⚪ FAR"
+                    except Exception:
+                        proximity = "⚪ FAR"
+
+                    # Priority badge
+                    try:
+                        if alignment == 3 and proximity.startswith("🟢"):
+                            priority = "🔥 HOT"
+                        elif alignment == 3 and proximity.startswith("⚪"):
+                            priority = "📌 WARM"
+                        elif alignment == 2:
+                            priority = "📍 MEDIUM"
+                        else:
+                            priority = "❄️ LOW"
+                    except Exception:
+                        priority = "❄️ LOW"
+
+                    st.session_state.scanner_cache[sym_to_load] = {
+                        "status": "ok",
+                        "res": res,
+                        "regime": regime,
+                        "alignment": alignment,
+                        "proximity": proximity,
+                        "priority": priority,
+                    }
             except Exception:
                 st.session_state.scanner_cache[sym_to_load] = {"status": "error"}
             # advance index and re-run to refresh UI (only if more assets remain)
@@ -403,6 +476,9 @@ def render_scanner():
                     "Wind (1H)": "⏳",
                     "Bias (1H)": "⏳",
                     "Stage (Narrative)": "⏳",
+                    "Alignment": "-",
+                    "Proximity": "⏳",
+                    "Priority": "-",
                     "Signal": "⏳ Loading",
                     "ValidSignal": False,
                 })
@@ -416,6 +492,9 @@ def render_scanner():
                         "Wind (1H)": "N/A",
                         "Bias (1H)": "N/A",
                         "Stage (Narrative)": "N/A",
+                        "Alignment": "-",
+                        "Proximity": "N/A",
+                        "Priority": "N/A",
                         "Signal": "⚪ ERROR",
                         "ValidSignal": False,
                     })
@@ -455,6 +534,9 @@ def render_scanner():
                         "Wind (1H)": wind_text,
                         "Bias (1H)": _bias_display(vb1),
                         "Stage (Narrative)": _narrative_text(ns) if ns != "-" else "N/A",
+                        "Alignment": cached.get("alignment", "-"),
+                        "Proximity": cached.get("proximity", "-"),
+                        "Priority": cached.get("priority", "-"),
                         "Signal": signal_display,
                         "ValidSignal": bool(valid_signal),
                     })
